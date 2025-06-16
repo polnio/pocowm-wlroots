@@ -2,9 +2,17 @@
   description = "A Wayland compositor library";
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    zig2nix = {
+      url = "github:Cloudef/zig2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      zig2nix,
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -19,24 +27,46 @@
           f rec {
             pkgs = nixpkgs.legacyPackages.${system};
             lib = pkgs.lib;
+            zig-env = zig2nix.outputs.zig-env.${system} { };
           }
         );
     in
     {
-      devShells = forAllSystems (
-        { pkgs, ... }:
+      packages = forAllSystems (
         {
-          default = pkgs.mkShell {
+          pkgs,
+          lib,
+          zig-env,
+          ...
+        }:
+        {
+          default = zig-env.package rec {
+            src = lib.cleanSource ./.;
             nativeBuildInputs = with pkgs; [
-              zig
+              autoPatchelfHook
               pkg-config
               wayland-scanner
               wayland-protocols
+            ];
+            buildInputs = with pkgs; [
               wayland
               libxkbcommon
               pixman
               wlroots_0_18
             ];
+            zigWrapperLibs = buildInputs;
+            zigBuildZonLock = ./build.zig.zon2json-lock;
+          };
+        }
+      );
+      devShells = forAllSystems (
+        { pkgs, ... }:
+        let
+          package = self.packages.${pkgs.system}.default;
+        in
+        {
+          default = pkgs.mkShell {
+            nativeBuildInputs = package.nativeBuildInputs ++ package.buildInputs;
           };
         }
       );

@@ -1,0 +1,10 @@
+# Nix
+.direnv/
+result
+
+# Zig
+.zig-cache/
+zig-out/
+
+# GDB
+.gdb_history

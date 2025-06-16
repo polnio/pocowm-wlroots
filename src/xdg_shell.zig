@@ -4,6 +4,7 @@ const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 
 const PocoWM = @import("main.zig").PocoWM;
+const utils = @import("utils.zig");
 
 const XdgShellMgr = @This();
 
@@ -29,6 +30,15 @@ pub fn init(self: *XdgShellMgr, pocowm: *PocoWM, allocator: std.mem.Allocator) !
 
 pub fn deinit(self: *XdgShellMgr) void {
     _ = self;
+}
+
+pub fn getFocus(self: *XdgShellMgr) ?*Toplevel {
+    const previous_surface = self.pocowm.seat.keyboard_state.focused_surface orelse return null;
+    const xdg_surface = wlr.XdgSurface.tryFromWlrSurface(previous_surface) orelse return null;
+    for (self.pocowm.xdg_shell_mgr.toplevels.items) |toplevel| {
+        if (toplevel.xdg_toplevel.base == xdg_surface) return toplevel;
+    }
+    return null;
 }
 
 fn onNewToplevel(listener: *wl.Listener(*wlr.XdgToplevel), xdg_toplevel: *wlr.XdgToplevel) void {
@@ -77,14 +87,21 @@ pub const Toplevel = struct {
         xdg_toplevel.events.destroy.add(&self.on_destroy);
 
         try xdg_shell_mgr.toplevels.append(self);
+        _ = try self.pocowm.layout.addWindow(self, &self.pocowm.layout.root);
         return self;
     }
     fn destroy(self: *Toplevel) void {
         const xdg_shell_mgr = &self.pocowm.xdg_shell_mgr;
-        const index = for (xdg_shell_mgr.toplevels.items, 0..) |toplevel, i| {
-            if (toplevel == self) break i;
-        } else unreachable;
+        if (self.pocowm.layout.getWindow(self)) |window| {
+            self.pocowm.layout.removeWindow(window);
+        }
+        const index = utils.find_index(*Toplevel, xdg_shell_mgr.toplevels.items, self) orelse return;
         _ = xdg_shell_mgr.toplevels.swapRemove(index);
+    }
+
+    pub fn isFocused(self: *Toplevel) bool {
+        const previous_surface = self.pocowm.seat.keyboard_state.focused_surface orelse return false;
+        return previous_surface == self.xdg_toplevel.base.surface;
     }
 
     pub fn focus(self: *Toplevel, surface: *wlr.Surface) void {

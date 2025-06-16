@@ -5,6 +5,8 @@ const wlr = @import("wlroots");
 const xkb = @import("xkbcommon");
 
 const PocoWM = @import("main.zig").PocoWM;
+const Toplevel = @import("xdg_shell.zig").Toplevel;
+const utils = @import("utils.zig");
 
 const InputMgr = @This();
 
@@ -78,9 +80,7 @@ const Keyboard = struct {
     }
 
     fn destroy(self: *Keyboard) void {
-        const index = for (self.pocowm.input_mgr.keyboards.items, 0..) |keyboard, i| {
-            if (keyboard == self) break i;
-        } else unreachable;
+        const index = utils.find_index(*Keyboard, self.pocowm.input_mgr.keyboards.items, self) orelse return;
         _ = self.pocowm.input_mgr.keyboards.swapRemove(index);
     }
 
@@ -158,7 +158,7 @@ const Cursor = struct {
     }
 
     fn handleMove(self: *Cursor, time_msec: u32) void {
-        if (self.pocowm.viewAt(0, 0)) |result| {
+        if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
             self.pocowm.seat.pointerNotifyEnter(result.surface, result.sx, result.sy);
             self.pocowm.seat.pointerNotifyMotion(time_msec, result.sx, result.sy);
             result.toplevel.focus(result.surface);
@@ -183,6 +183,9 @@ const Cursor = struct {
     fn onPointerButton(listener: *wl.Listener(*wlr.Pointer.event.Button), event: *wlr.Pointer.event.Button) void {
         const self: *Cursor = @fieldParentPtr("on_pointer_button", listener);
         _ = self.pocowm.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
+        if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
+            result.toplevel.focus(result.surface);
+        }
     }
 
     fn onPointerAxis(listener: *wl.Listener(*wlr.Pointer.event.Axis), event: *wlr.Pointer.event.Axis) void {

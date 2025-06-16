@@ -4,14 +4,15 @@ const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 const xkb = @import("xkbcommon");
 
+const InputMgr = @import("input.zig");
+const Layout = @import("layout.zig");
+const OutputMgr = @import("output.zig");
+const Toplevel = @import("xdg_shell.zig").Toplevel;
+const XdgShellMgr = @import("xdg_shell.zig");
+
 const c = @cImport({
     @cInclude("stdlib.h");
 });
-
-const InputMgr = @import("input.zig");
-const OutputMgr = @import("output.zig");
-const XdgShellMgr = @import("xdg_shell.zig");
-const Toplevel = @import("xdg_shell.zig").Toplevel;
 
 pub fn main() anyerror!void {
     wlr.log.init(.debug, null);
@@ -37,6 +38,7 @@ pub const PocoWM = struct {
     input_mgr: InputMgr,
     output_mgr: OutputMgr,
     xdg_shell_mgr: XdgShellMgr,
+    layout: Layout,
 
     socket_buf: [11]u8 = undefined,
     socket: [:0]const u8 = undefined,
@@ -53,10 +55,12 @@ pub const PocoWM = struct {
             .input_mgr = undefined,
             .output_mgr = undefined,
             .xdg_shell_mgr = undefined,
+            .layout = undefined,
         };
         try self.output_mgr.init(self, allocator);
         try self.input_mgr.init(self, allocator);
         try self.xdg_shell_mgr.init(self, allocator);
+        self.layout.init(allocator);
 
         try self.renderer.initServer(self.wl_server);
 

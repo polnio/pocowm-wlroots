@@ -4,6 +4,7 @@ const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 
 const PocoWM = @import("main.zig").PocoWM;
+const utils = @import("utils.zig");
 
 const OutputMgr = @This();
 
@@ -51,7 +52,7 @@ fn onNewOutput(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
     };
 }
 
-const Output = struct {
+pub const Output = struct {
     pocowm: *PocoWM,
     wlr_output: *wlr.Output,
 
@@ -83,9 +84,7 @@ const Output = struct {
         self.on_frame.link.remove();
         self.on_destroy.link.remove();
 
-        const index = for (output_mgr.outputs.items, 0..) |output, i| {
-            if (output == self) break i;
-        } else unreachable;
+        const index = utils.find_index(*Output, output_mgr.outputs.items, self) orelse return;
         _ = output_mgr.outputs.swapRemove(index);
     }
 
@@ -93,6 +92,7 @@ const Output = struct {
         const self: *Output = @fieldParentPtr("on_frame", listener);
 
         const scene_output = self.pocowm.scene.getSceneOutput(self.wlr_output).?;
+        self.pocowm.layout.render(scene_output);
         _ = scene_output.commit(null);
 
         var now = std.posix.clock_gettime(std.posix.CLOCK.MONOTONIC) catch @panic("CLOCK_MONOTONIC not supported");

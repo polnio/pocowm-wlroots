@@ -5,6 +5,8 @@ const wlr = @import("wlroots");
 const Toplevel = @import("xdg_shell.zig").Toplevel;
 const utils = @import("utils.zig");
 
+const GAP: i32 = 10;
+
 const Layout = @This();
 allocator: std.mem.Allocator,
 root: Sublayout,
@@ -100,10 +102,10 @@ pub fn addSublayout(self: *Layout, window: ?*Window, kind: SublayoutKind) !*Subl
 
 pub fn render(self: *Layout, scene_output: *wlr.SceneOutput) void {
     const geometry = utils.Geometry(i32){
-        .x = scene_output.x,
-        .y = scene_output.y,
-        .width = scene_output.output.width,
-        .height = scene_output.output.height,
+        .x = scene_output.x + GAP,
+        .y = scene_output.y + GAP,
+        .width = scene_output.output.width - (GAP * 2),
+        .height = scene_output.output.height - (GAP * 2),
     };
     self.root.render(scene_output, geometry);
 }
@@ -181,16 +183,16 @@ const Sublayout = struct {
             const ilen: i32 = @intCast(len);
             const subgeometry = switch (self.kind) {
                 .horizontal => utils.Geometry(i32){
-                    .x = geometry.x + @divTrunc(geometry.width * ii, ilen),
+                    .x = geometry.x + @divTrunc((geometry.width + GAP) * ii, ilen),
                     .y = geometry.y,
-                    .width = @divTrunc(geometry.width, ilen),
+                    .width = @divTrunc(geometry.width + GAP, ilen) - GAP,
                     .height = geometry.height,
                 },
                 .vertical => utils.Geometry(i32){
                     .x = geometry.x,
-                    .y = geometry.y + @divTrunc(geometry.height * ii, ilen),
+                    .y = geometry.y + @divTrunc((geometry.height + GAP) * ii, ilen),
                     .width = geometry.width,
-                    .height = @divTrunc(geometry.height, ilen),
+                    .height = @divTrunc(geometry.height + GAP, ilen) - GAP,
                 },
             };
             child.render(scene_output, subgeometry);

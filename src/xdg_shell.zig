@@ -43,8 +43,8 @@ pub fn getFocus(self: *XdgShellMgr) ?*Toplevel {
 
 fn onNewToplevel(listener: *wl.Listener(*wlr.XdgToplevel), xdg_toplevel: *wlr.XdgToplevel) void {
     const self: *XdgShellMgr = @fieldParentPtr("on_new_toplevel", listener);
-    _ = Toplevel.create(self.pocowm, xdg_toplevel, self.allocator) catch {
-        std.log.err("failed to allocate new toplevel", .{});
+    _ = Toplevel.create(self.pocowm, xdg_toplevel, self.allocator) catch |err| {
+        std.log.err("failed to allocate new toplevel: {s}", .{@errorName(err)});
         return;
     };
 }
@@ -87,7 +87,13 @@ pub const Toplevel = struct {
         xdg_toplevel.events.destroy.add(&self.on_destroy);
 
         try xdg_shell_mgr.toplevels.append(self);
-        _ = try self.pocowm.layout.addWindow(self, &self.pocowm.layout.root);
+        const focused_ = if (self.pocowm.xdg_shell_mgr.getFocus()) |f| self.pocowm.layout.getWindow(f) else null;
+        if (focused_) |focused| {
+            _ = try self.pocowm.layout.addWindow(self, focused.parent);
+        } else {
+            _ = try self.pocowm.layout.addWindow(self, &self.pocowm.layout.root);
+        }
+        self.focus(null);
         return self;
     }
     fn destroy(self: *Toplevel) void {
@@ -104,9 +110,10 @@ pub const Toplevel = struct {
         return previous_surface == self.xdg_toplevel.base.surface;
     }
 
-    pub fn focus(self: *Toplevel, surface: *wlr.Surface) void {
+    pub fn focus(self: *Toplevel, surface: ?*wlr.Surface) void {
+        const surface_ = surface orelse self.xdg_toplevel.base.surface;
         if (self.pocowm.seat.keyboard_state.focused_surface) |previous_surface| {
-            if (previous_surface == surface) return;
+            if (previous_surface == surface_) return;
             if (wlr.XdgSurface.tryFromWlrSurface(previous_surface)) |xdg_surface| {
                 _ = xdg_surface.role_data.toplevel.?.setActivated(false);
             }
@@ -117,7 +124,7 @@ pub const Toplevel = struct {
         _ = self.xdg_toplevel.setActivated(true);
 
         if (self.pocowm.seat.getKeyboard()) |keyboard| {
-            self.pocowm.seat.keyboardNotifyEnter(surface, keyboard.keycodes[0..keyboard.num_keycodes], &keyboard.modifiers);
+            self.pocowm.seat.keyboardNotifyEnter(surface_, keyboard.keycodes[0..keyboard.num_keycodes], &keyboard.modifiers);
         }
     }
 
@@ -132,7 +139,7 @@ pub const Toplevel = struct {
     fn onSurfaceMap(listener: *wl.Listener(void)) void {
         const self: *Toplevel = @fieldParentPtr("on_surface_map", listener);
         self.is_mapped = true;
-        self.focus(self.xdg_toplevel.base.surface);
+        self.focus(null);
     }
 
     fn onSurfaceUnmap(listener: *wl.Listener(void)) void {

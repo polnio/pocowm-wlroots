@@ -6,6 +6,7 @@ const xkb = @import("xkbcommon");
 
 const PocoWM = @import("main.zig").PocoWM;
 const Toplevel = @import("xdg_shell.zig").Toplevel;
+const SublayoutKind = @import("layout.zig").SublayoutKind;
 const utils = @import("utils.zig");
 
 const InputMgr = @This();
@@ -113,6 +114,33 @@ const Keyboard = struct {
                         child.spawn() catch |err| {
                             std.log.err("failed to spawn kitty: {s}", .{@errorName(err)});
                         };
+                        return true;
+                    },
+                    xkb.Keysym.b => {
+                        const focused = self.pocowm.xdg_shell_mgr.getFocus();
+                        const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
+                        _ = self.pocowm.layout.addSublayout(focused_window, .vertical) catch |err| {
+                            std.log.err("failed to add new sublayout: {s}", .{@errorName(err)});
+                        };
+                        return true;
+                    },
+                    xkb.Keysym.n => {
+                        const focused = self.pocowm.xdg_shell_mgr.getFocus();
+                        const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
+                        _ = self.pocowm.layout.addSublayout(focused_window, .horizontal) catch |err| {
+                            std.log.err("failed to add new sublayout: {s}", .{@errorName(err)});
+                        };
+                        return true;
+                    },
+                    xkb.Keysym.e => {
+                        const focused = self.pocowm.xdg_shell_mgr.getFocus();
+                        const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
+                        const new_kind = @as(SublayoutKind, if (focused_window) |w| switch (w.parent.kind) {
+                            .horizontal => .vertical,
+                            .vertical => .horizontal,
+                        } else .horizontal);
+                        const parent = if (focused_window) |w| w.parent else &self.pocowm.layout.root;
+                        parent.kind = new_kind;
                         return true;
                     },
                     else => {},

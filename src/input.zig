@@ -18,6 +18,7 @@ cursor: Cursor,
 
 on_new_input: wl.Listener(*wlr.InputDevice) = .init(onNewInput),
 
+/// Depends on OutputMgr
 pub fn init(self: *InputMgr, pocowm: *PocoWM, allocator: std.mem.Allocator) !void {
     self.* = .{
         .allocator = allocator,

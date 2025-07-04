@@ -37,6 +37,7 @@
           pkg-config
           wayland-scanner
           wayland-protocols
+          wlr-protocols
         ];
       buildInputs =
         pkgs: with pkgs; [

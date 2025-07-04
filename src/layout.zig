@@ -2,19 +2,23 @@ const std = @import("std");
 
 const wlr = @import("wlroots");
 
+const Output = @import("output.zig").Output;
+const PocoWM = @import("main.zig").PocoWM;
 const Toplevel = @import("xdg_shell.zig").Toplevel;
 const utils = @import("utils.zig");
 
-const GAP: i32 = 10;
+const GAP: i32 = 30;
 
 const Layout = @This();
 allocator: std.mem.Allocator,
+pocowm: *PocoWM,
 root: Sublayout,
 windows: std.AutoHashMap(*Toplevel, *Window),
 
-pub fn init(self: *Layout, allocator: std.mem.Allocator) void {
+pub fn init(self: *Layout, pocowm: *PocoWM, allocator: std.mem.Allocator) void {
     self.* = .{
         .allocator = allocator,
+        .pocowm = pocowm,
         .root = .{
             .allocator = allocator,
             .parent = null,
@@ -100,14 +104,20 @@ pub fn addSublayout(self: *Layout, window: ?*Window, kind: SublayoutKind) !*Subl
     }
 }
 
-pub fn render(self: *Layout, scene_output: *wlr.SceneOutput) void {
+pub fn render(self: *Layout, output: *Output) void {
     const geometry = utils.Geometry(i32){
-        .x = scene_output.x + GAP,
-        .y = scene_output.y + GAP,
-        .width = scene_output.output.width - (GAP * 2),
-        .height = scene_output.output.height - (GAP * 2),
+        .x = output.usable_area.x + GAP,
+        .y = output.usable_area.y + GAP,
+        .width = output.usable_area.width - (GAP * 2),
+        .height = output.usable_area.height - (GAP * 2),
     };
-    self.root.render(scene_output, geometry);
+
+    for (self.pocowm.layer_shell_mgr.surfaces.items) |layer_surface| {
+        const state = &layer_surface.scene_layer_surface.layer_surface.current;
+        if (state.exclusive_zone < 0) continue;
+    }
+
+    self.root.render(geometry);
 }
 
 const NodeChild = union(enum) {
@@ -124,15 +134,13 @@ const NodeChild = union(enum) {
 
     fn destroy(self: *NodeChild) void {
         switch (self.*) {
-            .window => |window| window.destroy(),
-            .sublayout => |sublayout| sublayout.destroy(),
+            inline else => |node| node.destroy(),
         }
     }
 
-    fn render(self: NodeChild, scene_output: *wlr.SceneOutput, geometry: utils.Geometry(i32)) void {
+    fn render(self: NodeChild, geometry: utils.Geometry(i32)) void {
         switch (self) {
-            .window => |window| window.render(scene_output, geometry),
-            .sublayout => |sublayout| sublayout.render(scene_output, geometry),
+            inline else => |node| node.render(geometry),
         }
     }
 };
@@ -141,10 +149,8 @@ const Window = struct {
     toplevel: *Toplevel,
     parent: *Sublayout,
 
-    fn render(self: *Window, scene_output: *wlr.SceneOutput, geometry: utils.Geometry(i32)) void {
-        _ = scene_output;
-        self.toplevel.scene_tree.node.setPosition(geometry.x, geometry.y);
-        _ = self.toplevel.xdg_toplevel.setSize(geometry.width, geometry.height);
+    fn render(self: *Window, geometry: utils.Geometry(i32)) void {
+        self.toplevel.setGeometry(geometry);
     }
 };
 pub const SublayoutKind = enum {
@@ -176,7 +182,7 @@ const Sublayout = struct {
         self.allocator.destroy(self);
     }
 
-    fn render(self: *Sublayout, scene_output: *wlr.SceneOutput, geometry: utils.Geometry(i32)) void {
+    fn render(self: *Sublayout, geometry: utils.Geometry(i32)) void {
         const len = self.children.items.len;
         for (self.children.items, 0..) |child, i| {
             const ii: i32 = @intCast(i);
@@ -195,7 +201,7 @@ const Sublayout = struct {
                     .height = @divTrunc(geometry.height + GAP, ilen) - GAP,
                 },
             };
-            child.render(scene_output, subgeometry);
+            child.render(subgeometry);
         }
     }
 };

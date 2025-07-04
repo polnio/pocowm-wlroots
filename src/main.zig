@@ -5,9 +5,12 @@ const wlr = @import("wlroots");
 const xkb = @import("xkbcommon");
 
 const InputMgr = @import("input.zig");
+const LayerShellMgr = @import("layer_shell.zig");
+const LayerSurface = @import("layer_shell.zig").LayerSurface;
 const Layout = @import("layout.zig");
 const OutputMgr = @import("output.zig");
 const Toplevel = @import("xdg_shell.zig").Toplevel;
+const XdgOutputMgr = @import("xdg_output.zig");
 const XdgShellMgr = @import("xdg_shell.zig");
 
 const c = @cImport({
@@ -35,10 +38,12 @@ pub const PocoWM = struct {
     wlr_allocator: *wlr.Allocator,
     seat: *wlr.Seat,
 
-    input_mgr: InputMgr,
-    output_mgr: OutputMgr,
-    xdg_shell_mgr: XdgShellMgr,
-    layout: Layout,
+    input_mgr: InputMgr = undefined,
+    output_mgr: OutputMgr = undefined,
+    xdg_shell_mgr: XdgShellMgr = undefined,
+    xdg_output_mgr: XdgOutputMgr = undefined,
+    layer_shell_mgr: LayerShellMgr = undefined,
+    layout: Layout = undefined,
 
     socket_buf: [11]u8 = undefined,
     socket: [:0]const u8 = undefined,
@@ -52,15 +57,13 @@ pub const PocoWM = struct {
             .scene = try wlr.Scene.create(),
             .seat = try wlr.Seat.create(self.wl_server, "default"),
             .wlr_allocator = try wlr.Allocator.autocreate(self.backend, self.renderer),
-            .input_mgr = undefined,
-            .output_mgr = undefined,
-            .xdg_shell_mgr = undefined,
-            .layout = undefined,
         };
         try self.output_mgr.init(self, allocator);
         try self.input_mgr.init(self, allocator);
         try self.xdg_shell_mgr.init(self, allocator);
-        self.layout.init(allocator);
+        try self.layer_shell_mgr.init(self, allocator);
+        try self.xdg_output_mgr.init(self, allocator);
+        self.layout.init(self, allocator);
 
         try self.renderer.initServer(self.wl_server);
 
@@ -87,8 +90,8 @@ pub const PocoWM = struct {
     }
 
     const ViewAtResult = struct {
-        toplevel: *Toplevel,
-        surface: *wlr.Surface,
+        surface: *BaseSurface,
+        inner_surface: *wlr.Surface,
         sx: f64,
         sy: f64,
     };
@@ -103,15 +106,30 @@ pub const PocoWM = struct {
 
         var it = node.parent;
         while (it) |n| : (it = n.node.parent) {
-            if (@as(?*Toplevel, @ptrFromInt(n.node.data))) |toplevel| {
-                return ViewAtResult{
-                    .toplevel = toplevel,
-                    .surface = scene_surface.surface,
-                    .sx = sx,
-                    .sy = sy,
-                };
-            }
+            const msurface: ?*BaseSurface = @ptrFromInt(n.node.data);
+            const surface = msurface orelse continue;
+            return ViewAtResult{
+                .surface = surface,
+                .inner_surface = scene_surface.surface,
+                .sx = sx,
+                .sy = sy,
+            };
         }
         return null;
+    }
+};
+
+pub const Surface = union(enum) {
+    xdg: *Toplevel,
+    layer: *LayerSurface,
+};
+
+pub const BaseSurface = struct {
+    parent: Surface,
+    pub fn wlr_surface(self: *BaseSurface) *wlr.Surface {
+        return switch (self.parent) {
+            .xdg => |xdg| xdg.xdg_toplevel.base.surface,
+            .layer => |layer| layer.scene_layer_surface.layer_surface.surface,
+        };
     }
 };

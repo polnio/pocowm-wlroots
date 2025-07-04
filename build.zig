@@ -2,6 +2,11 @@ const std = @import("std");
 
 const Scanner = @import("wayland").Scanner;
 
+fn get_path(b: *std.Build, pkg: []const u8, path: []const u8) std.Build.LazyPath {
+    const pc_output = b.run(&.{ "pkg-config", "--variable=pkgdatadir", pkg });
+    return .{ .cwd_relative = b.pathJoin(&.{ std.mem.trim(u8, pc_output, &std.ascii.whitespace), path }) };
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -9,6 +14,7 @@ pub fn build(b: *std.Build) void {
     const scanner = Scanner.create(b, .{});
     scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
     scanner.addSystemProtocol("stable/tablet/tablet-v2.xml");
+    scanner.addCustomProtocol(get_path(b, "wlr-protocols", "unstable/wlr-layer-shell-unstable-v1.xml"));
 
     // Some of these versions may be out of date with what wlroots implements.
     // This is not a problem in practice though as long as tinywl successfully compiles.
@@ -22,6 +28,7 @@ pub fn build(b: *std.Build) void {
     scanner.generate("wl_seat", 7);
     scanner.generate("wl_data_device_manager", 3);
     scanner.generate("xdg_wm_base", 2);
+    scanner.generate("zwlr_layer_shell_v1", 4);
     scanner.generate("zwp_tablet_manager_v2", 1);
 
     const wayland = b.createModule(.{ .root_source_file = scanner.result });
@@ -66,4 +73,3 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 }
-

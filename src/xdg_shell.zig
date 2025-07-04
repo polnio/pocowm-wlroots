@@ -4,6 +4,7 @@ const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 
 const PocoWM = @import("main.zig").PocoWM;
+const BaseSurface = @import("main.zig").BaseSurface;
 const utils = @import("utils.zig");
 
 const XdgShellMgr = @This();
@@ -14,6 +15,7 @@ xdg_shell: *wlr.XdgShell,
 
 on_new_toplevel: wl.Listener(*wlr.XdgToplevel) = .init(onNewToplevel),
 on_new_popup: wl.Listener(*wlr.XdgPopup) = .init(onNewPopup),
+on_destroy: wl.Listener(*wlr.XdgShell) = .init(onMgrDestroy),
 
 toplevels: std.ArrayList(*Toplevel),
 
@@ -26,6 +28,7 @@ pub fn init(self: *XdgShellMgr, pocowm: *PocoWM, allocator: std.mem.Allocator) !
     };
     self.xdg_shell.events.new_toplevel.add(&self.on_new_toplevel);
     self.xdg_shell.events.new_popup.add(&self.on_new_popup);
+    self.xdg_shell.events.destroy.add(&self.on_destroy);
 }
 
 pub fn deinit(self: *XdgShellMgr) void {
@@ -54,7 +57,16 @@ fn onNewPopup(listener: *wl.Listener(*wlr.XdgPopup), xdg_popup: *wlr.XdgPopup) v
     _ = xdg_popup;
 }
 
+fn onMgrDestroy(listener: *wl.Listener(*wlr.XdgShell), _: *wlr.XdgShell) void {
+    const self: *XdgShellMgr = @fieldParentPtr("on_destroy", listener);
+    self.on_new_toplevel.link.remove();
+    self.on_new_popup.link.remove();
+    self.on_destroy.link.remove();
+}
+
 pub const Toplevel = struct {
+    base: BaseSurface,
+    allocator: std.mem.Allocator,
     pocowm: *PocoWM,
     xdg_toplevel: *wlr.XdgToplevel,
     scene_tree: *wlr.SceneTree,
@@ -74,12 +86,14 @@ pub const Toplevel = struct {
         errdefer allocator.destroy(self);
         const xdg_shell_mgr = &pocowm.xdg_shell_mgr;
         self.* = .{
+            .base = .{ .parent = .{ .xdg = self } },
+            .allocator = allocator,
             .pocowm = pocowm,
             .xdg_toplevel = xdg_toplevel,
             .scene_tree = try pocowm.scene.tree.createSceneXdgSurface(xdg_toplevel.base),
         };
 
-        self.scene_tree.node.data = @intFromPtr(self);
+        self.scene_tree.node.data = @intFromPtr(&self.base);
         xdg_toplevel.base.data = @intFromPtr(self.scene_tree);
         xdg_toplevel.base.surface.events.map.add(&self.on_surface_map);
         xdg_toplevel.base.surface.events.unmap.add(&self.on_surface_unmap);
@@ -97,12 +111,23 @@ pub const Toplevel = struct {
         return self;
     }
     fn destroy(self: *Toplevel) void {
+        self.on_surface_map.link.remove();
+        self.on_surface_unmap.link.remove();
+        self.on_surface_commit.link.remove();
+        self.on_destroy.link.remove();
+
         const xdg_shell_mgr = &self.pocowm.xdg_shell_mgr;
         if (self.pocowm.layout.getWindow(self)) |window| {
             self.pocowm.layout.removeWindow(window);
         }
         const index = utils.find_index(*Toplevel, xdg_shell_mgr.toplevels.items, self) orelse return;
         _ = xdg_shell_mgr.toplevels.swapRemove(index);
+        self.allocator.destroy(self);
+    }
+
+    pub fn setGeometry(self: *Toplevel, geometry: utils.Geometry(i32)) void {
+        self.scene_tree.node.setPosition(geometry.x, geometry.y);
+        _ = self.xdg_toplevel.setSize(geometry.width, geometry.height);
     }
 
     pub fn isFocused(self: *Toplevel) bool {

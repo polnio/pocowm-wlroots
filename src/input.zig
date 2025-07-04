@@ -81,6 +81,10 @@ const Keyboard = struct {
     }
 
     fn destroy(self: *Keyboard) void {
+        self.on_modifiers.link.remove();
+        self.on_key.link.remove();
+        self.on_destroy.link.remove();
+
         const index = utils.find_index(*Keyboard, self.pocowm.input_mgr.keyboards.items, self) orelse return;
         _ = self.pocowm.input_mgr.keyboards.swapRemove(index);
     }
@@ -187,9 +191,12 @@ const Cursor = struct {
 
     fn handleMove(self: *Cursor, time_msec: u32) void {
         if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
-            self.pocowm.seat.pointerNotifyEnter(result.surface, result.sx, result.sy);
+            self.pocowm.seat.pointerNotifyEnter(result.surface.wlr_surface(), result.sx, result.sy);
             self.pocowm.seat.pointerNotifyMotion(time_msec, result.sx, result.sy);
-            result.toplevel.focus(result.surface);
+            switch (result.surface.parent) {
+                .xdg => |xdg| xdg.focus(result.inner_surface),
+                else => {},
+            }
         } else {
             self.wlr_cursor.setXcursor(self.xcursor_mgr, "default");
             self.pocowm.seat.pointerClearFocus();
@@ -212,7 +219,10 @@ const Cursor = struct {
         const self: *Cursor = @fieldParentPtr("on_pointer_button", listener);
         _ = self.pocowm.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
         if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
-            result.toplevel.focus(result.surface);
+            switch (result.surface.parent) {
+                .xdg => |xdg| xdg.focus(result.inner_surface),
+                else => {},
+            }
         }
     }
 

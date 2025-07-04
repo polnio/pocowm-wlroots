@@ -75,8 +75,6 @@ pub const Toplevel = struct {
 
     // TODO: implement events handlers
     on_surface_commit: wl.Listener(*wlr.Surface) = .init(onSurfaceCommit),
-    on_surface_map: wl.Listener(void) = .init(onSurfaceMap),
-    on_surface_unmap: wl.Listener(void) = .init(onSurfaceUnmap),
     on_destroy: wl.Listener(void) = .init(onDestroy),
     // on_request_move: wl.Listener(void) = .init(onRequestMove),
     // on_request_resize: wl.Listener(void) = .init(onRequestResize),
@@ -95,8 +93,6 @@ pub const Toplevel = struct {
 
         self.scene_tree.node.data = @intFromPtr(&self.base);
         xdg_toplevel.base.data = @intFromPtr(self.scene_tree);
-        xdg_toplevel.base.surface.events.map.add(&self.on_surface_map);
-        xdg_toplevel.base.surface.events.unmap.add(&self.on_surface_unmap);
         xdg_toplevel.base.surface.events.commit.add(&self.on_surface_commit);
         xdg_toplevel.events.destroy.add(&self.on_destroy);
 
@@ -153,23 +149,11 @@ pub const Toplevel = struct {
         }
     }
 
-    fn onSurfaceCommit(listener: *wl.Listener(*wlr.Surface), xdg_surface: *wlr.Surface) void {
-        _ = xdg_surface;
+    fn onSurfaceCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
         const self: *Toplevel = @fieldParentPtr("on_surface_commit", listener);
         if (self.xdg_toplevel.base.initial_commit) {
             _ = self.xdg_toplevel.setSize(0, 0);
         }
-    }
-
-    fn onSurfaceMap(listener: *wl.Listener(void)) void {
-        const self: *Toplevel = @fieldParentPtr("on_surface_map", listener);
-        self.is_mapped = true;
-        self.focus(null);
-    }
-
-    fn onSurfaceUnmap(listener: *wl.Listener(void)) void {
-        const self: *Toplevel = @fieldParentPtr("on_surface_unmap", listener);
-        self.is_mapped = true;
     }
 
     fn onDestroy(listener: *wl.Listener(void)) void {

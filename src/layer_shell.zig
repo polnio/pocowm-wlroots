@@ -90,14 +90,7 @@ pub const LayerSurface = struct {
     scene_layer_surface: *wlr.SceneLayerSurfaceV1,
     output: *Output,
 
-    // link: wl.list.Link = undefined,
-
-    // TODO: remove unused listeners
-    on_surface_commit: wl.Listener(*wlr.Surface) = .init(onSurfaceCommit),
     on_surface_destroy: wl.Listener(*wlr.Surface) = .init(onSurfaceDestroy),
-    on_surface_map: wl.Listener(void) = .init(onSurfaceMap),
-    on_surface_unmap: wl.Listener(void) = .init(onSurfaceUnmap),
-    on_destroy: wl.Listener(*wlr.LayerSurfaceV1) = .init(onLSDestroy),
 
     fn create(pocowm: *PocoWM, layer_surface: *wlr.LayerSurfaceV1, allocator: std.mem.Allocator) !*LayerSurface {
         const self = try allocator.create(LayerSurface);
@@ -114,11 +107,7 @@ pub const LayerSurface = struct {
         };
         scene_layer_surface.tree.node.data = @intFromPtr(&self.base);
         // layer_surface.data = @intFromPtr(self.scene_layer_surface);
-        layer_surface.surface.events.commit.add(&self.on_surface_commit);
         layer_surface.surface.events.destroy.add(&self.on_surface_destroy);
-        layer_surface.surface.events.map.add(&self.on_surface_map);
-        layer_surface.surface.events.unmap.add(&self.on_surface_unmap);
-        layer_surface.events.destroy.add(&self.on_destroy);
         try pocowm.layer_shell_mgr.surfaces.append(self);
         return self;
     }
@@ -135,25 +124,9 @@ pub const LayerSurface = struct {
         self.allocator.destroy(self);
     }
 
-    fn onSurfaceCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
-        _ = listener;
-    }
-
     fn onSurfaceDestroy(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
         const self: *LayerSurface = @fieldParentPtr("on_surface_destroy", listener);
         self.destroy();
-    }
-
-    fn onSurfaceMap(listener: *wl.Listener(void)) void {
-        _ = listener;
-    }
-
-    fn onSurfaceUnmap(listener: *wl.Listener(void)) void {
-        _ = listener;
-    }
-
-    fn onLSDestroy(listener: *wl.Listener(*wlr.LayerSurfaceV1), _: *wlr.LayerSurfaceV1) void {
-        _ = listener;
     }
 };
 

@@ -3,9 +3,11 @@ const std = @import("std");
 const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 
+const LayerShellMgr = @import("layer_shell.zig");
+const OutputLayers = LayerShellMgr.OutputLayers;
+const Layers = LayerShellMgr.Layers;
 const PocoWM = @import("main.zig").PocoWM;
 const utils = @import("utils.zig");
-const Layers = @import("layer_shell.zig").Layers;
 
 const OutputMgr = @This();
 
@@ -65,7 +67,7 @@ pub const Output = struct {
     wlr_output: *wlr.Output,
 
     // TODO: see a way to group fields by feature
-    layers: Layers,
+    layers: OutputLayers,
 
     on_frame: wl.Listener(*wlr.Output) = .init(onFrame),
     on_request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(onRequestState),
@@ -76,20 +78,27 @@ pub const Output = struct {
     fn create(pocowm: *PocoWM, wlr_output: *wlr.Output, allocator: std.mem.Allocator) !*Output {
         var self = try allocator.create(Output);
         const output_mgr = &pocowm.output_mgr;
+        const layout_output = try output_mgr.output_layout.addAuto(wlr_output);
+        const scene_output = try pocowm.scene.createSceneOutput(wlr_output);
+        output_mgr.scene_output_layout.addOutput(layout_output, scene_output);
         self.* = .{
             .pocowm = pocowm,
-            .layers = try Layers.init(pocowm, allocator),
+            .layers = try OutputLayers.init(pocowm, allocator),
             .wlr_output = wlr_output,
         };
         wlr_output.effectiveResolution(&self.usable_area.width, &self.usable_area.height);
+
+        if (wlr_output.isWl()) {
+            var buf: [64]u8 = undefined;
+            const title = try std.fmt.bufPrintZ(&buf, "PocoWM - {s}", .{wlr_output.name});
+            wlr_output.wlSetTitle(title);
+            wlr_output.wlSetAppId("pocowm");
+        }
 
         wlr_output.events.frame.add(&self.on_frame);
         wlr_output.events.request_state.add(&self.on_request_state);
         wlr_output.events.destroy.add(&self.on_destroy);
 
-        const layout_output = try output_mgr.output_layout.addAuto(wlr_output);
-        const scene_output = try self.pocowm.scene.createSceneOutput(wlr_output);
-        output_mgr.scene_output_layout.addOutput(layout_output, scene_output);
         try output_mgr.outputs.append(self);
         return self;
     }

@@ -9,7 +9,6 @@ const LayerShellMgr = @import("layer_shell.zig");
 const LayerSurface = @import("layer_shell.zig").LayerSurface;
 const Layout = @import("layout.zig");
 const OutputMgr = @import("output.zig");
-const Toplevel = @import("xdg_shell.zig").Toplevel;
 const XdgOutputMgr = @import("xdg_output.zig");
 const XdgShellMgr = @import("xdg_shell.zig");
 
@@ -120,7 +119,8 @@ pub const PocoWM = struct {
 };
 
 pub const Surface = union(enum) {
-    xdg: *Toplevel,
+    xdg_toplevel: *XdgShellMgr.Toplevel,
+    xdg_popup: *XdgShellMgr.Popup,
     layer: *LayerSurface,
 };
 
@@ -128,7 +128,8 @@ pub const BaseSurface = struct {
     parent: Surface,
     pub fn wlr_surface(self: *BaseSurface) *wlr.Surface {
         return switch (self.parent) {
-            .xdg => |xdg| xdg.xdg_toplevel.base.surface,
+            .xdg_toplevel => |toplevel| toplevel.xdg_toplevel.base.surface,
+            .xdg_popup => |popup| popup.xdg_popup.base.surface,
             .layer => |layer| layer.scene_layer_surface.layer_surface.surface,
         };
     }

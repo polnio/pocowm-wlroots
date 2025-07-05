@@ -14,7 +14,6 @@ pocowm: *PocoWM,
 xdg_shell: *wlr.XdgShell,
 
 on_new_toplevel: wl.Listener(*wlr.XdgToplevel) = .init(onNewToplevel),
-on_new_popup: wl.Listener(*wlr.XdgPopup) = .init(onNewPopup),
 on_destroy: wl.Listener(*wlr.XdgShell) = .init(onMgrDestroy),
 
 toplevels: std.ArrayList(*Toplevel),
@@ -27,7 +26,6 @@ pub fn init(self: *XdgShellMgr, pocowm: *PocoWM, allocator: std.mem.Allocator) !
         .toplevels = std.ArrayList(*Toplevel).init(allocator),
     };
     self.xdg_shell.events.new_toplevel.add(&self.on_new_toplevel);
-    self.xdg_shell.events.new_popup.add(&self.on_new_popup);
     self.xdg_shell.events.destroy.add(&self.on_destroy);
 }
 
@@ -52,15 +50,9 @@ fn onNewToplevel(listener: *wl.Listener(*wlr.XdgToplevel), xdg_toplevel: *wlr.Xd
     };
 }
 
-fn onNewPopup(listener: *wl.Listener(*wlr.XdgPopup), xdg_popup: *wlr.XdgPopup) void {
-    _ = listener;
-    _ = xdg_popup;
-}
-
 fn onMgrDestroy(listener: *wl.Listener(*wlr.XdgShell), _: *wlr.XdgShell) void {
     const self: *XdgShellMgr = @fieldParentPtr("on_destroy", listener);
     self.on_new_toplevel.link.remove();
-    self.on_new_popup.link.remove();
     self.on_destroy.link.remove();
 }
 
@@ -71,9 +63,8 @@ pub const Toplevel = struct {
     xdg_toplevel: *wlr.XdgToplevel,
     scene_tree: *wlr.SceneTree,
 
-    is_mapped: bool = false,
-
     // TODO: implement events handlers
+    on_new_popup: wl.Listener(*wlr.XdgPopup) = .init(onNewPopup),
     on_surface_commit: wl.Listener(*wlr.Surface) = .init(onSurfaceCommit),
     on_destroy: wl.Listener(void) = .init(onDestroy),
     // on_request_move: wl.Listener(void) = .init(onRequestMove),
@@ -84,15 +75,15 @@ pub const Toplevel = struct {
         errdefer allocator.destroy(self);
         const xdg_shell_mgr = &pocowm.xdg_shell_mgr;
         self.* = .{
-            .base = .{ .parent = .{ .xdg = self } },
+            .base = .{ .parent = .{ .xdg_toplevel = self } },
             .allocator = allocator,
             .pocowm = pocowm,
             .xdg_toplevel = xdg_toplevel,
-            .scene_tree = try pocowm.scene.tree.createSceneXdgSurface(xdg_toplevel.base),
+            .scene_tree = try pocowm.layer_shell_mgr.layers.normal.scene_tree.createSceneXdgSurface(xdg_toplevel.base),
         };
 
         self.scene_tree.node.data = @intFromPtr(&self.base);
-        xdg_toplevel.base.data = @intFromPtr(self.scene_tree);
+        xdg_toplevel.base.surface.data = @intFromPtr(self.scene_tree);
         xdg_toplevel.base.surface.events.commit.add(&self.on_surface_commit);
         xdg_toplevel.events.destroy.add(&self.on_destroy);
 
@@ -107,9 +98,9 @@ pub const Toplevel = struct {
         return self;
     }
     fn destroy(self: *Toplevel) void {
-        self.on_surface_map.link.remove();
-        self.on_surface_unmap.link.remove();
-        self.on_surface_commit.link.remove();
+        if (self.xdg_toplevel.base.initial_commit) {
+            self.on_surface_commit.link.remove();
+        }
         self.on_destroy.link.remove();
 
         const xdg_shell_mgr = &self.pocowm.xdg_shell_mgr;
@@ -149,15 +140,94 @@ pub const Toplevel = struct {
         }
     }
 
+    pub fn onNewPopup(listener: *wl.Listener(*wlr.XdgPopup), xdg_popup: *wlr.XdgPopup) void {
+        const self: *Toplevel = @fieldParentPtr("on_new_popup", listener);
+        _ = Popup.create(self.pocowm, xdg_popup, self.scene_tree, self.allocator) catch |err| {
+            std.log.err("failed to create new popup: {s}", .{@errorName(err)});
+        };
+    }
+
     fn onSurfaceCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
         const self: *Toplevel = @fieldParentPtr("on_surface_commit", listener);
         if (self.xdg_toplevel.base.initial_commit) {
             _ = self.xdg_toplevel.setSize(0, 0);
+            self.on_surface_commit.link.remove();
         }
     }
 
     fn onDestroy(listener: *wl.Listener(void)) void {
         const self: *Toplevel = @fieldParentPtr("on_destroy", listener);
+        self.destroy();
+    }
+};
+
+pub const Popup = struct {
+    base: BaseSurface,
+    allocator: std.mem.Allocator,
+    pocowm: *PocoWM,
+    xdg_popup: *wlr.XdgPopup,
+    scene_tree: *wlr.SceneTree,
+
+    on_new_popup: wl.Listener(*wlr.XdgPopup) = .init(onNewPopup),
+    on_surface_commit: wl.Listener(*wlr.Surface) = .init(onSurfaceCommit),
+    on_destroy: wl.Listener(void) = .init(onDestroy),
+
+    pub fn create(pocowm: *PocoWM, xdg_popup: *wlr.XdgPopup, parent: *wlr.SceneTree, allocator: std.mem.Allocator) !*Popup {
+        const self = try allocator.create(Popup);
+        self.* = .{
+            .base = .{ .parent = .{ .xdg_popup = self } },
+            .allocator = allocator,
+            .pocowm = pocowm,
+            .xdg_popup = xdg_popup,
+            .scene_tree = try parent.createSceneXdgSurface(xdg_popup.base),
+        };
+
+        self.scene_tree.node.data = @intFromPtr(&self.base);
+        xdg_popup.base.surface.data = @intFromPtr(self.scene_tree);
+        xdg_popup.events.destroy.add(&self.on_destroy);
+        xdg_popup.base.surface.events.commit.add(&self.on_surface_commit);
+        return self;
+    }
+
+    pub fn destroy(self: *Popup) void {
+        self.on_destroy.link.remove();
+        self.allocator.destroy(self);
+    }
+
+    fn onNewPopup(listener: *wl.Listener(*wlr.XdgPopup), xdg_popup: *wlr.XdgPopup) void {
+        const self: *Popup = @fieldParentPtr("on_new_popup", listener);
+        _ = Popup.create(self.pocowm, xdg_popup, self.scene_tree, self.allocator) catch |err| {
+            std.log.err("failed to create new popup: {s}", .{@errorName(err)});
+        };
+    }
+
+    fn onSurfaceCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
+        const self: *Popup = @fieldParentPtr("on_surface_commit", listener);
+        if (self.xdg_popup.base.initial_commit) {
+            const parent = self.xdg_popup.parent orelse return;
+            const mparent_tree: ?*wlr.SceneTree = @ptrFromInt(parent.data);
+            const parent_tree = mparent_tree orelse return;
+
+            var lx: c_int = undefined;
+            var ly: c_int = undefined;
+            var output_box: wlr.Box = undefined;
+            _ = parent_tree.node.coords(&lx, &ly);
+            self.pocowm.output_mgr.output_layout.getBox(null, &output_box);
+
+            const box = wlr.Box{
+                .x = output_box.x - lx,
+                .y = output_box.y - ly,
+                .width = output_box.width,
+                .height = output_box.height,
+            };
+            self.xdg_popup.unconstrainFromBox(&box);
+
+            self.on_surface_commit.link.remove();
+        }
+    }
+
+    fn onDestroy(listener: *wl.Listener(void)) void {
+        const self: *Popup = @fieldParentPtr("on_destroy", listener);
         self.destroy();
     }
 };

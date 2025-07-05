@@ -195,7 +195,7 @@ const Cursor = struct {
             self.pocowm.seat.pointerNotifyEnter(result.surface.wlr_surface(), result.sx, result.sy);
             self.pocowm.seat.pointerNotifyMotion(time_msec, result.sx, result.sy);
             switch (result.surface.parent) {
-                .xdg => |xdg| xdg.focus(result.inner_surface),
+                .xdg_toplevel => |toplevel| toplevel.focus(result.inner_surface),
                 else => {},
             }
         } else {
@@ -221,7 +221,7 @@ const Cursor = struct {
         _ = self.pocowm.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
         if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
             switch (result.surface.parent) {
-                .xdg => |xdg| xdg.focus(result.inner_surface),
+                .xdg_toplevel => |toplevel| toplevel.focus(result.inner_surface),
                 else => {},
             }
         }

@@ -10,6 +10,7 @@ const zwlr = wayland.server.zwlr;
 const PocoWM = @import("main.zig").PocoWM;
 const BaseSurface = @import("main.zig").BaseSurface;
 const Output = @import("output.zig").Output;
+const Popup = @import("xdg_shell.zig").Popup;
 const utils = @import("utils.zig");
 
 const LayerShellMgr = @This();
@@ -17,6 +18,7 @@ const LayerShellMgr = @This();
 allocator: std.mem.Allocator,
 pocowm: *PocoWM,
 layer_shell: *wlr.LayerShellV1,
+layers: Layers,
 surfaces: std.ArrayList(*LayerSurface),
 
 on_new_surface: wl.Listener(*wlr.LayerSurfaceV1) = .init(onNewSurface),
@@ -27,6 +29,7 @@ pub fn init(self: *LayerShellMgr, pocowm: *PocoWM, allocator: std.mem.Allocator)
         .allocator = allocator,
         .pocowm = pocowm,
         .layer_shell = try wlr.LayerShellV1.create(pocowm.wl_server, 4),
+        .layers = try Layers.init(pocowm, allocator),
         .surfaces = std.ArrayList(*LayerSurface).init(allocator),
     };
     self.layer_shell.events.new_surface.add(&self.on_new_surface);
@@ -34,6 +37,8 @@ pub fn init(self: *LayerShellMgr, pocowm: *PocoWM, allocator: std.mem.Allocator)
 }
 
 pub fn deinit(self: *LayerShellMgr) void {
+    self.on_new_surface.link.remove();
+    self.on_destroy.link.remove();
     self.surfaces.deinit();
 }
 
@@ -90,12 +95,14 @@ pub const LayerSurface = struct {
     scene_layer_surface: *wlr.SceneLayerSurfaceV1,
     output: *Output,
 
+    on_new_popup: wl.Listener(*wlr.XdgPopup) = .init(onNewPopup),
     on_surface_destroy: wl.Listener(*wlr.Surface) = .init(onSurfaceDestroy),
 
     fn create(pocowm: *PocoWM, layer_surface: *wlr.LayerSurfaceV1, allocator: std.mem.Allocator) !*LayerSurface {
         const self = try allocator.create(LayerSurface);
         const wlr_output = layer_surface.output orelse return error.OutputNotFound;
         const output = pocowm.output_mgr.getOutput(wlr_output) orelse return error.OutputNotFound;
+        std.debug.print("Current layer: {}\n", .{layer_surface.current.layer});
         const layer = output.layers.getLayer(layer_surface.current.layer) orelse return error.LayerNotFound;
         const scene_layer_surface = try layer.scene_tree.createSceneLayerSurfaceV1(layer_surface);
         self.* = .{
@@ -106,22 +113,40 @@ pub const LayerSurface = struct {
             .output = output,
         };
         scene_layer_surface.tree.node.data = @intFromPtr(&self.base);
-        // layer_surface.data = @intFromPtr(self.scene_layer_surface);
+        layer_surface.surface.data = @intFromPtr(self.scene_layer_surface.tree);
+        layer_surface.events.new_popup.add(&self.on_new_popup);
         layer_surface.surface.events.destroy.add(&self.on_surface_destroy);
         try pocowm.layer_shell_mgr.surfaces.append(self);
         return self;
     }
 
     fn destroy(self: *LayerSurface) void {
-        self.on_surface_commit.link.remove();
+        self.on_new_popup.link.remove();
         self.on_surface_destroy.link.remove();
-        self.on_surface_map.link.remove();
-        self.on_surface_unmap.link.remove();
-        self.on_destroy.link.remove();
 
         const index = utils.find_index(*LayerSurface, self.pocowm.layer_shell_mgr.surfaces.items, self) orelse return;
         _ = self.pocowm.layer_shell_mgr.surfaces.swapRemove(index);
         self.allocator.destroy(self);
+    }
+
+    fn movePopupToTopLayer(self: *LayerSurface, popup: *Popup) void {
+        var box: wlr.Box = undefined;
+        self.pocowm.output_mgr.output_layout.getBox(self.output.wlr_output, &box);
+        const lx = self.scene_layer_surface.tree.node.x + box.x;
+        const ly = self.scene_layer_surface.tree.node.y + box.y;
+        popup.scene_tree.node.reparent(self.output.layers.popup.scene_tree);
+        popup.scene_tree.node.setPosition(lx, ly);
+    }
+
+    fn onNewPopup(listener: *wl.Listener(*wlr.XdgPopup), xdg_popup: *wlr.XdgPopup) void {
+        const self: *LayerSurface = @fieldParentPtr("on_new_popup", listener);
+        const popup = Popup.create(self.pocowm, xdg_popup, self.scene_layer_surface.tree, self.allocator) catch |err| {
+            std.log.err("failed to create new popup: {s}", .{@errorName(err)});
+            return;
+        };
+        if (@intFromEnum(self.scene_layer_surface.layer_surface.current.layer) <= @intFromEnum(zwlr.LayerShellV1.Layer.bottom)) {
+            self.movePopupToTopLayer(popup);
+        }
     }
 
     fn onSurfaceDestroy(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
@@ -133,37 +158,44 @@ pub const LayerSurface = struct {
 pub const Layer = struct {
     scene_tree: *wlr.SceneTree,
     layer_surface: *LayerSurface,
-    layer_type: zwlr.LayerShellV1.Layer,
 
-    fn create(parent: *wlr.SceneTree, layer_type: zwlr.LayerShellV1.Layer, allocator: std.mem.Allocator) !*Layer {
+    fn create(parent: *wlr.SceneTree, allocator: std.mem.Allocator) !*Layer {
         const self = try allocator.create(Layer);
         const scene_tree = try wlr.SceneTree.createSceneTree(parent);
         self.* = .{
             .scene_tree = scene_tree,
             .layer_surface = undefined,
-            .layer_type = layer_type,
         };
         scene_tree.node.data = @intFromPtr(self);
         return self;
     }
 };
 
-pub const Layers = struct {
+pub const OutputLayers = struct {
     background: *Layer,
     bottom: *Layer,
     top: *Layer,
     overlay: *Layer,
+    popup: *Layer,
 
-    pub fn init(pocowm: *PocoWM, allocator: std.mem.Allocator) !Layers {
-        return Layers{
-            .background = try Layer.create(&pocowm.scene.tree, .background, allocator),
-            .bottom = try Layer.create(&pocowm.scene.tree, .bottom, allocator),
-            .top = try Layer.create(&pocowm.scene.tree, .top, allocator),
-            .overlay = try Layer.create(&pocowm.scene.tree, .overlay, allocator),
+    pub fn init(pocowm: *PocoWM, allocator: std.mem.Allocator) !OutputLayers {
+        var self = OutputLayers{
+            .background = try Layer.create(&pocowm.scene.tree, allocator),
+            .bottom = try Layer.create(&pocowm.scene.tree, allocator),
+            .top = try Layer.create(&pocowm.scene.tree, allocator),
+            .overlay = try Layer.create(&pocowm.scene.tree, allocator),
+            .popup = try Layer.create(&pocowm.scene.tree, allocator),
         };
+        const menu = pocowm.layer_shell_mgr.layers.menu;
+        self.bottom.scene_tree.node.lowerToBottom();
+        self.background.scene_tree.node.lowerToBottom();
+        self.top.scene_tree.node.placeBelow(&menu.scene_tree.node);
+        self.overlay.scene_tree.node.placeBelow(&menu.scene_tree.node);
+        self.popup.scene_tree.node.placeBelow(&menu.scene_tree.node);
+        return self;
     }
 
-    pub fn getLayer(self: *Layers, layer_type: zwlr.LayerShellV1.Layer) ?*Layer {
+    pub fn getLayer(self: *OutputLayers, layer_type: zwlr.LayerShellV1.Layer) ?*Layer {
         switch (layer_type) {
             .background => return self.background,
             .bottom => return self.bottom,
@@ -171,5 +203,17 @@ pub const Layers = struct {
             .top => return self.top,
             _ => return null,
         }
+    }
+};
+
+pub const Layers = struct {
+    normal: *Layer,
+    menu: *Layer,
+
+    pub fn init(pocowm: *PocoWM, allocator: std.mem.Allocator) !Layers {
+        return Layers{
+            .normal = try Layer.create(&pocowm.scene.tree, allocator),
+            .menu = try Layer.create(&pocowm.scene.tree, allocator),
+        };
     }
 };

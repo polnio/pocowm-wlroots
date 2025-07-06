@@ -18,7 +18,6 @@ on_destroy: wl.Listener(*wlr.XdgShell) = .init(onMgrDestroy),
 
 toplevels: std.ArrayList(*Toplevel),
 focused_toplevel: ?*Toplevel = null,
-// grabbed_toplevel: ?*Toplevel = null,
 
 pub fn init(self: *XdgShellMgr, pocowm: *PocoWM, allocator: std.mem.Allocator) !void {
     self.* = .{
@@ -72,6 +71,7 @@ pub const Toplevel = struct {
     on_surface_commit: wl.Listener(*wlr.Surface) = .init(onSurfaceCommit),
     on_request_move: wl.Listener(*wlr.XdgToplevel.event.Move) = .init(onRequestMove),
     on_request_resize: wl.Listener(*wlr.XdgToplevel.event.Resize) = .init(onRequestResize),
+    on_request_maximize: wl.Listener(void) = .init(onRequestMaximize),
     on_destroy: wl.Listener(void) = .init(onDestroy),
 
     fn create(pocowm: *PocoWM, xdg_toplevel: *wlr.XdgToplevel, allocator: std.mem.Allocator) !*Toplevel {
@@ -93,6 +93,7 @@ pub const Toplevel = struct {
         xdg_toplevel.base.surface.events.commit.add(&self.on_surface_commit);
         xdg_toplevel.events.request_move.add(&self.on_request_move);
         xdg_toplevel.events.request_resize.add(&self.on_request_resize);
+        xdg_toplevel.events.request_maximize.add(&self.on_request_maximize);
         xdg_toplevel.events.destroy.add(&self.on_destroy);
 
         try xdg_shell_mgr.toplevels.append(self);
@@ -116,6 +117,7 @@ pub const Toplevel = struct {
         self.on_new_popup.link.remove();
         self.on_request_move.link.remove();
         self.on_request_resize.link.remove();
+        self.on_request_maximize.link.remove();
         self.on_destroy.link.remove();
 
         const xdg_shell_mgr = &self.pocowm.xdg_shell_mgr;
@@ -228,6 +230,13 @@ pub const Toplevel = struct {
     fn onRequestResize(listener: *wl.Listener(*wlr.XdgToplevel.event.Resize), event: *wlr.XdgToplevel.event.Resize) void {
         const self: *Toplevel = @fieldParentPtr("on_request_resize", listener);
         self.startResize(event.edges);
+    }
+
+    fn onRequestMaximize(listener: *wl.Listener(void)) void {
+        std.debug.print("onRequestMaximize\n", .{});
+        const self: *Toplevel = @fieldParentPtr("on_request_maximize", listener);
+        _, const window = self.pocowm.output_mgr.getOutputAndWindow(self) orelse return;
+        window.toggleMaximized();
     }
 
     fn onDestroy(listener: *wl.Listener(void)) void {

@@ -38,6 +38,7 @@ pub fn addWindow(self: *Layout, toplevel: *Toplevel, parent: *Sublayout) !*Windo
         .toplevel = toplevel,
         .parent = parent,
         .state = .tiled,
+        .old_state = .tiled,
         .floating_box = undefined,
     };
     toplevel.xdg_toplevel.base.getGeometry(&window.floating_box);
@@ -151,36 +152,60 @@ const NodeChild = union(enum) {
     }
 };
 
-const WindowState = enum { tiled, floating };
+const WindowState = enum { tiled, floating, maximized };
 
 pub const Window = struct {
     toplevel: *Toplevel,
     parent: *Sublayout,
     state: WindowState,
+    old_state: WindowState,
     floating_box: wlr.Box,
 
     pub fn render(self: *Window, geometry: wlr.Box) void {
         switch (self.state) {
             .tiled => self.toplevel.setGeometry(geometry),
             .floating => self.toplevel.setGeometry(self.floating_box),
+            .maximized => self.toplevel.setGeometry(self.parent.layout.output.usable_area),
         }
     }
     pub fn makeFloating(self: *Window) void {
+        _ = self.toplevel.xdg_toplevel.setMaximized(false);
         if (self.state == .floating) return;
         const floating_views = self.parent.layout.pocowm.layer_shell_mgr.layers.floating_views;
         self.toplevel.scene_tree.node.reparent(floating_views.scene_tree);
         self.state = .floating;
     }
     pub fn makeTiled(self: *Window) void {
+        _ = self.toplevel.xdg_toplevel.setMaximized(false);
         if (self.state == .tiled) return;
         const tiled_views = self.parent.layout.output.layers.tiled_views;
         self.toplevel.scene_tree.node.reparent(tiled_views.scene_tree);
         self.state = .tiled;
     }
+    pub fn makeMaximized(self: *Window) void {
+        _ = self.toplevel.xdg_toplevel.setMaximized(true);
+        if (self.state == .maximized) return;
+        const maximized_views = self.parent.layout.output.layers.maximized_views;
+        self.toplevel.scene_tree.node.reparent(maximized_views.scene_tree);
+        self.old_state = self.state;
+        self.state = .maximized;
+    }
     pub fn toggleFloating(self: *Window) void {
         switch (self.state) {
             .tiled => self.makeFloating(),
             .floating => self.makeTiled(),
+            .maximized => {},
+        }
+    }
+    pub fn toggleMaximized(self: *Window) void {
+        switch (self.state) {
+            .tiled => self.makeMaximized(),
+            .floating => self.makeMaximized(),
+            .maximized => switch (self.old_state) {
+                .tiled => self.makeTiled(),
+                .floating => self.makeFloating(),
+                .maximized => self.makeTiled(),
+            },
         }
     }
 };

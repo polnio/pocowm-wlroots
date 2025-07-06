@@ -165,6 +165,14 @@ const Keyboard = struct {
                         }
                         return true;
                     },
+                    xkb.Keysym.g => {
+                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
+                        if (focused_window) |w| {
+                            w.toggleMaximized();
+                            output.layout.render();
+                        }
+                        return true;
+                    },
                     else => {},
                 }
             }

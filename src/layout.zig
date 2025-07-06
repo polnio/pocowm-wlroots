@@ -34,7 +34,10 @@ pub fn addWindow(self: *Layout, toplevel: *Toplevel, parent: *Sublayout) !*Windo
     window.* = .{
         .toplevel = toplevel,
         .parent = parent,
+        .is_floating = false,
+        .floating_box = undefined,
     };
+    toplevel.xdg_toplevel.base.getGeometry(&window.floating_box);
 
     try parent.children.append(NodeChild{ .window = window });
     try self.windows.put(toplevel, window);
@@ -105,7 +108,7 @@ pub fn addSublayout(self: *Layout, window: ?*Window, kind: SublayoutKind) !*Subl
 }
 
 pub fn render(self: *Layout, output: *Output) void {
-    const geometry = utils.Geometry(i32){
+    const geometry = wlr.Box{
         .x = output.usable_area.x + GAP,
         .y = output.usable_area.y + GAP,
         .width = output.usable_area.width - (GAP * 2),
@@ -138,7 +141,7 @@ const NodeChild = union(enum) {
         }
     }
 
-    fn render(self: NodeChild, geometry: utils.Geometry(i32)) void {
+    fn render(self: NodeChild, geometry: wlr.Box) void {
         switch (self) {
             inline else => |node| node.render(geometry),
         }
@@ -148,9 +151,15 @@ const NodeChild = union(enum) {
 const Window = struct {
     toplevel: *Toplevel,
     parent: *Sublayout,
+    is_floating: bool,
+    floating_box: wlr.Box,
 
-    fn render(self: *Window, geometry: utils.Geometry(i32)) void {
-        self.toplevel.setGeometry(geometry);
+    pub fn render(self: *Window, geometry: wlr.Box) void {
+        if (self.is_floating) {
+            self.toplevel.setGeometry(self.floating_box);
+        } else {
+            self.toplevel.setGeometry(geometry);
+        }
     }
 };
 pub const SublayoutKind = enum {
@@ -182,25 +191,45 @@ const Sublayout = struct {
         self.allocator.destroy(self);
     }
 
-    fn render(self: *Sublayout, geometry: utils.Geometry(i32)) void {
-        const len = self.children.items.len;
-        for (self.children.items, 0..) |child, i| {
-            const ii: i32 = @intCast(i);
-            const ilen: i32 = @intCast(len);
+    fn render(self: *Sublayout, geometry: wlr.Box) void {
+        var len: i32 = 0;
+        for (self.children.items) |child| {
+            switch (child) {
+                .window => |window| if (window.is_floating) continue,
+                else => {},
+            }
+            len += 1;
+        }
+        if (len == 0) {
+            for (self.children.items) |child| {
+                child.render(geometry);
+            }
+            return;
+        }
+        var i: i32 = 0;
+        for (self.children.items) |child| {
             const subgeometry = switch (self.kind) {
-                .horizontal => utils.Geometry(i32){
-                    .x = geometry.x + @divTrunc((geometry.width + GAP) * ii, ilen),
+                .horizontal => wlr.Box{
+                    .x = geometry.x + @divTrunc((geometry.width + GAP) * i, len),
                     .y = geometry.y,
-                    .width = @divTrunc(geometry.width + GAP, ilen) - GAP,
+                    .width = @divTrunc(geometry.width + GAP, len) - GAP,
                     .height = geometry.height,
                 },
-                .vertical => utils.Geometry(i32){
+                .vertical => wlr.Box{
                     .x = geometry.x,
-                    .y = geometry.y + @divTrunc((geometry.height + GAP) * ii, ilen),
+                    .y = geometry.y + @divTrunc((geometry.height + GAP) * i, len),
                     .width = geometry.width,
-                    .height = @divTrunc(geometry.height + GAP, ilen) - GAP,
+                    .height = @divTrunc(geometry.height + GAP, len) - GAP,
                 },
             };
+            switch (child) {
+                .window => |window| if (!window.is_floating) {
+                    i += 1;
+                },
+                else => {
+                    i += 1;
+                },
+            }
             child.render(subgeometry);
         }
     }

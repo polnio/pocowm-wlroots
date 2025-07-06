@@ -17,6 +17,8 @@ on_new_toplevel: wl.Listener(*wlr.XdgToplevel) = .init(onNewToplevel),
 on_destroy: wl.Listener(*wlr.XdgShell) = .init(onMgrDestroy),
 
 toplevels: std.ArrayList(*Toplevel),
+focused_toplevel: ?*Toplevel = null,
+// grabbed_toplevel: ?*Toplevel = null,
 
 pub fn init(self: *XdgShellMgr, pocowm: *PocoWM, allocator: std.mem.Allocator) !void {
     self.* = .{
@@ -33,13 +35,15 @@ pub fn deinit(self: *XdgShellMgr) void {
     _ = self;
 }
 
-pub fn getFocus(self: *XdgShellMgr) ?*Toplevel {
-    const previous_surface = self.pocowm.seat.keyboard_state.focused_surface orelse return null;
-    const xdg_surface = wlr.XdgSurface.tryFromWlrSurface(previous_surface) orelse return null;
+pub fn updateFocus(self: *XdgShellMgr) void {
+    const previous_surface = self.pocowm.input_mgr.getFocus() orelse return;
+    const xdg_surface = wlr.XdgSurface.tryFromWlrSurface(previous_surface) orelse return;
     for (self.pocowm.xdg_shell_mgr.toplevels.items) |toplevel| {
-        if (toplevel.xdg_toplevel.base == xdg_surface) return toplevel;
+        if (toplevel.xdg_toplevel.base == xdg_surface) {
+            self.focused_toplevel = toplevel;
+            return;
+        }
     }
-    return null;
 }
 
 fn onNewToplevel(listener: *wl.Listener(*wlr.XdgToplevel), xdg_toplevel: *wlr.XdgToplevel) void {
@@ -66,9 +70,9 @@ pub const Toplevel = struct {
     // TODO: implement events handlers
     on_new_popup: wl.Listener(*wlr.XdgPopup) = .init(onNewPopup),
     on_surface_commit: wl.Listener(*wlr.Surface) = .init(onSurfaceCommit),
+    on_request_move: wl.Listener(*wlr.XdgToplevel.event.Move) = .init(onRequestMove),
+    on_request_resize: wl.Listener(*wlr.XdgToplevel.event.Resize) = .init(onRequestResize),
     on_destroy: wl.Listener(void) = .init(onDestroy),
-    // on_request_move: wl.Listener(void) = .init(onRequestMove),
-    // on_request_resize: wl.Listener(void) = .init(onRequestResize),
 
     fn create(pocowm: *PocoWM, xdg_toplevel: *wlr.XdgToplevel, allocator: std.mem.Allocator) !*Toplevel {
         const self = try allocator.create(Toplevel);
@@ -84,16 +88,25 @@ pub const Toplevel = struct {
 
         self.scene_tree.node.data = @intFromPtr(&self.base);
         xdg_toplevel.base.surface.data = @intFromPtr(self.scene_tree);
+        xdg_toplevel.base.events.new_popup.add(&self.on_new_popup);
         xdg_toplevel.base.surface.events.commit.add(&self.on_surface_commit);
+        xdg_toplevel.events.request_move.add(&self.on_request_move);
+        xdg_toplevel.events.request_resize.add(&self.on_request_resize);
         xdg_toplevel.events.destroy.add(&self.on_destroy);
 
         try xdg_shell_mgr.toplevels.append(self);
-        const focused_ = if (self.pocowm.xdg_shell_mgr.getFocus()) |f| self.pocowm.layout.getWindow(f) else null;
-        if (focused_) |focused| {
-            _ = try self.pocowm.layout.addWindow(self, focused.parent);
-        } else {
-            _ = try self.pocowm.layout.addWindow(self, &self.pocowm.layout.root);
-        }
+        const focused_ = if (self.pocowm.xdg_shell_mgr.focused_toplevel) |f| self.pocowm.layout.getWindow(f) else null;
+        const sublayout = if (focused_) |focused| focused.parent else &self.pocowm.layout.root;
+        const window = try self.pocowm.layout.addWindow(self, sublayout);
+        // TODO: get correct output
+        var output_box: wlr.Box = undefined;
+        self.pocowm.output_mgr.output_layout.getBox(null, &output_box);
+        window.floating_box = wlr.Box{
+            .x = @divTrunc(output_box.width, 4),
+            .y = @divTrunc(output_box.height, 4),
+            .width = @divTrunc(output_box.width, 2),
+            .height = @divTrunc(output_box.height, 2),
+        };
         self.focus(null);
         return self;
     }
@@ -101,6 +114,9 @@ pub const Toplevel = struct {
         if (self.xdg_toplevel.base.initial_commit) {
             self.on_surface_commit.link.remove();
         }
+        self.on_new_popup.link.remove();
+        self.on_request_move.link.remove();
+        self.on_request_resize.link.remove();
         self.on_destroy.link.remove();
 
         const xdg_shell_mgr = &self.pocowm.xdg_shell_mgr;
@@ -112,7 +128,21 @@ pub const Toplevel = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn setGeometry(self: *Toplevel, geometry: utils.Geometry(i32)) void {
+    pub fn getEdgeAt(self: *Toplevel, x: i32, y: i32) ?wlr.Edges {
+        if (x < 0 or y < 0) return null;
+        const width = self.xdg_toplevel.current.width;
+        const height = self.xdg_toplevel.current.height;
+        if (x > width or y > height) return null;
+        const edges = wlr.Edges{
+            .left = x << 1 < width,
+            .right = x << 1 > width,
+            .top = y << 1 < height,
+            .bottom = y << 1 > height,
+        };
+        return edges;
+    }
+
+    pub fn setGeometry(self: *Toplevel, geometry: wlr.Box) void {
         self.scene_tree.node.setPosition(geometry.x, geometry.y);
         _ = self.xdg_toplevel.setSize(geometry.width, geometry.height);
     }
@@ -124,12 +154,14 @@ pub const Toplevel = struct {
 
     pub fn focus(self: *Toplevel, surface: ?*wlr.Surface) void {
         const surface_ = surface orelse self.xdg_toplevel.base.surface;
-        if (self.pocowm.seat.keyboard_state.focused_surface) |previous_surface| {
+        if (self.pocowm.xdg_shell_mgr.focused_toplevel == self) return;
+        if (self.pocowm.input_mgr.getFocus()) |previous_surface| {
             if (previous_surface == surface_) return;
             if (wlr.XdgSurface.tryFromWlrSurface(previous_surface)) |xdg_surface| {
                 _ = xdg_surface.role_data.toplevel.?.setActivated(false);
             }
         }
+        self.pocowm.xdg_shell_mgr.focused_toplevel = self;
 
         self.scene_tree.node.raiseToTop();
 
@@ -138,6 +170,41 @@ pub const Toplevel = struct {
         if (self.pocowm.seat.getKeyboard()) |keyboard| {
             self.pocowm.seat.keyboardNotifyEnter(surface_, keyboard.keycodes[0..keyboard.num_keycodes], &keyboard.modifiers);
         }
+    }
+
+    pub fn startMove(self: *Toplevel) void {
+        const window = self.pocowm.layout.getWindow(self) orelse return;
+        if (!window.is_floating) return;
+
+        var cursor = &self.pocowm.input_mgr.cursor;
+
+        cursor.mode = .move;
+        cursor.grab = .{
+            .grab_x = cursor.wlr_cursor.x,
+            .grab_y = cursor.wlr_cursor.y,
+            .old_box = window.floating_box,
+            .resize_edges = undefined,
+            .toplevel = self,
+        };
+    }
+
+    pub fn startResize(self: *Toplevel, edges: wlr.Edges) void {
+        const window = self.pocowm.layout.getWindow(self) orelse return;
+        if (!window.is_floating) return;
+
+        var cursor = &self.pocowm.input_mgr.cursor;
+
+        var box: wlr.Box = undefined;
+        self.xdg_toplevel.base.getGeometry(&box);
+
+        cursor.mode = .resize;
+        cursor.grab = .{
+            .grab_x = cursor.wlr_cursor.x,
+            .grab_y = cursor.wlr_cursor.y,
+            .old_box = window.floating_box,
+            .resize_edges = edges,
+            .toplevel = self,
+        };
     }
 
     pub fn onNewPopup(listener: *wl.Listener(*wlr.XdgPopup), xdg_popup: *wlr.XdgPopup) void {
@@ -153,6 +220,16 @@ pub const Toplevel = struct {
             _ = self.xdg_toplevel.setSize(0, 0);
             self.on_surface_commit.link.remove();
         }
+    }
+
+    fn onRequestMove(listener: *wl.Listener(*wlr.XdgToplevel.event.Move), _: *wlr.XdgToplevel.event.Move) void {
+        const self: *Toplevel = @fieldParentPtr("on_request_move", listener);
+        self.startMove();
+    }
+
+    fn onRequestResize(listener: *wl.Listener(*wlr.XdgToplevel.event.Resize), event: *wlr.XdgToplevel.event.Resize) void {
+        const self: *Toplevel = @fieldParentPtr("on_request_resize", listener);
+        self.startResize(event.edges);
     }
 
     fn onDestroy(listener: *wl.Listener(void)) void {

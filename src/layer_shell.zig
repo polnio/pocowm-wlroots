@@ -102,7 +102,6 @@ pub const LayerSurface = struct {
         const self = try allocator.create(LayerSurface);
         const wlr_output = layer_surface.output orelse return error.OutputNotFound;
         const output = pocowm.output_mgr.getOutput(wlr_output) orelse return error.OutputNotFound;
-        std.debug.print("Current layer: {}\n", .{layer_surface.current.layer});
         const layer = output.layers.getLayer(layer_surface.current.layer) orelse return error.LayerNotFound;
         const scene_layer_surface = try layer.scene_tree.createSceneLayerSurfaceV1(layer_surface);
         self.* = .{

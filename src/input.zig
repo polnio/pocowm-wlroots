@@ -30,6 +30,15 @@ pub fn init(self: *InputMgr, pocowm: *PocoWM, allocator: std.mem.Allocator) !voi
     pocowm.backend.events.new_input.add(&self.on_new_input);
 }
 
+pub fn deinit(self: *InputMgr) void {
+    self.on_new_input.link.remove();
+    self.cursor.deinit();
+}
+
+pub fn getFocus(self: *InputMgr) ?*wlr.Surface {
+    return self.pocowm.seat.keyboard_state.focused_surface;
+}
+
 fn onNewInput(listener: *wl.Listener(*wlr.InputDevice), device: *wlr.InputDevice) void {
     const self: *InputMgr = @fieldParentPtr("on_new_input", listener);
     switch (device.type) {
@@ -115,14 +124,14 @@ const Keyboard = struct {
             for (wlr_keyboard.xkb_state.?.keyGetSyms(keycode)) |sym| {
                 switch (@intFromEnum(sym)) {
                     xkb.Keysym.Return => {
-                        var child = std.process.Child.init(&.{"kitty"}, self.allocator);
+                        var child = std.process.Child.init(&.{"foot"}, self.allocator);
                         child.spawn() catch |err| {
-                            std.log.err("failed to spawn kitty: {s}", .{@errorName(err)});
+                            std.log.err("failed to spawn foot: {s}", .{@errorName(err)});
                         };
                         return true;
                     },
                     xkb.Keysym.b => {
-                        const focused = self.pocowm.xdg_shell_mgr.getFocus();
+                        const focused = self.pocowm.xdg_shell_mgr.focused_toplevel;
                         const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
                         _ = self.pocowm.layout.addSublayout(focused_window, .vertical) catch |err| {
                             std.log.err("failed to add new sublayout: {s}", .{@errorName(err)});
@@ -130,7 +139,7 @@ const Keyboard = struct {
                         return true;
                     },
                     xkb.Keysym.n => {
-                        const focused = self.pocowm.xdg_shell_mgr.getFocus();
+                        const focused = self.pocowm.xdg_shell_mgr.focused_toplevel;
                         const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
                         _ = self.pocowm.layout.addSublayout(focused_window, .horizontal) catch |err| {
                             std.log.err("failed to add new sublayout: {s}", .{@errorName(err)});
@@ -138,7 +147,7 @@ const Keyboard = struct {
                         return true;
                     },
                     xkb.Keysym.e => {
-                        const focused = self.pocowm.xdg_shell_mgr.getFocus();
+                        const focused = self.pocowm.xdg_shell_mgr.focused_toplevel;
                         const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
                         const new_kind = @as(SublayoutKind, if (focused_window) |w| switch (w.parent.kind) {
                             .horizontal => .vertical,
@@ -146,6 +155,18 @@ const Keyboard = struct {
                         } else .horizontal);
                         const parent = if (focused_window) |w| w.parent else &self.pocowm.layout.root;
                         parent.kind = new_kind;
+                        return true;
+                    },
+                    xkb.Keysym.f => {
+                        const focused = self.pocowm.xdg_shell_mgr.focused_toplevel;
+                        const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
+                        if (focused_window) |w| {
+                            w.is_floating = !w.is_floating;
+                            // TODO: Only re-render the concerned output
+                            for (self.pocowm.output_mgr.outputs.items) |output| {
+                                self.pocowm.layout.render(output);
+                            }
+                        }
                         return true;
                     },
                     else => {},
@@ -163,9 +184,19 @@ const Keyboard = struct {
 };
 
 const Cursor = struct {
+    const Grab = struct {
+        grab_x: f64,
+        grab_y: f64,
+        old_box: wlr.Box,
+        resize_edges: wlr.Edges = std.mem.zeroes(wlr.Edges),
+        toplevel: *Toplevel,
+    };
     pocowm: *PocoWM,
     wlr_cursor: *wlr.Cursor,
     xcursor_mgr: *wlr.XcursorManager,
+
+    mode: enum { normal, move, resize } = .normal,
+    grab: Grab = undefined,
 
     on_pointer_motion: wl.Listener(*wlr.Pointer.event.Motion) = .init(onPointerMotion),
     on_pointer_motion_absolute: wl.Listener(*wlr.Pointer.event.MotionAbsolute) = .init(onPointerMotionAbsolute),
@@ -190,17 +221,59 @@ const Cursor = struct {
         self.wlr_cursor.events.frame.add(&self.on_cursor_frame);
     }
 
+    fn deinit(self: *Cursor) void {
+        self.on_pointer_motion.link.remove();
+        self.on_pointer_motion_absolute.link.remove();
+        self.on_pointer_button.link.remove();
+        self.on_pointer_axis.link.remove();
+        self.on_cursor_frame.link.remove();
+    }
+
     fn handleMove(self: *Cursor, time_msec: u32) void {
-        if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
-            self.pocowm.seat.pointerNotifyEnter(result.surface.wlr_surface(), result.sx, result.sy);
-            self.pocowm.seat.pointerNotifyMotion(time_msec, result.sx, result.sy);
-            switch (result.surface.parent) {
-                .xdg_toplevel => |toplevel| toplevel.focus(result.inner_surface),
-                else => {},
-            }
-        } else {
-            self.wlr_cursor.setXcursor(self.xcursor_mgr, "default");
-            self.pocowm.seat.pointerClearFocus();
+        switch (self.mode) {
+            .normal => {
+                if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
+                    self.pocowm.seat.pointerNotifyEnter(result.inner_surface, result.sx, result.sy);
+                    self.pocowm.seat.pointerNotifyMotion(time_msec, result.sx, result.sy);
+                    switch (result.surface.parent) {
+                        .xdg_toplevel => |toplevel| toplevel.focus(result.inner_surface),
+                        else => {},
+                    }
+                } else {
+                    self.wlr_cursor.setXcursor(self.xcursor_mgr, "default");
+                    self.pocowm.seat.pointerClearFocus();
+                }
+            },
+            .move => {
+                const window = self.pocowm.layout.getWindow(self.grab.toplevel) orelse return;
+                window.floating_box.x = self.grab.old_box.x + @as(c_int, @intFromFloat(self.wlr_cursor.x - self.grab.grab_x));
+                window.floating_box.y = self.grab.old_box.y + @as(c_int, @intFromFloat(self.wlr_cursor.y - self.grab.grab_y));
+                self.grab.toplevel.setGeometry(window.floating_box);
+            },
+            .resize => {
+                const window = self.pocowm.layout.getWindow(self.grab.toplevel) orelse return;
+                var delta_x: c_int = @intFromFloat(self.wlr_cursor.x - self.grab.grab_x);
+                var delta_y: c_int = @intFromFloat(self.wlr_cursor.y - self.grab.grab_y);
+                var new_box = self.grab.old_box;
+                if (self.grab.resize_edges.left) {
+                    new_box.x += delta_x;
+                    delta_x = -delta_x;
+                }
+                if (self.grab.resize_edges.left or self.grab.resize_edges.right) {
+                    new_box.width += delta_x;
+                }
+                if (self.grab.resize_edges.top) {
+                    new_box.y += delta_y;
+                    delta_y = -delta_y;
+                }
+                if (self.grab.resize_edges.top or self.grab.resize_edges.bottom) {
+                    new_box.height += delta_y;
+                }
+                if (new_box.width <= 0) new_box.width = 1;
+                if (new_box.height <= 0) new_box.height = 1;
+                window.floating_box = new_box;
+                self.grab.toplevel.setGeometry(window.floating_box);
+            },
         }
     }
 
@@ -219,9 +292,34 @@ const Cursor = struct {
     fn onPointerButton(listener: *wl.Listener(*wlr.Pointer.event.Button), event: *wlr.Pointer.event.Button) void {
         const self: *Cursor = @fieldParentPtr("on_pointer_button", listener);
         _ = self.pocowm.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
-        if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
+        if (event.state == .released) {
+            self.mode = .normal;
+        } else if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
             switch (result.surface.parent) {
-                .xdg_toplevel => |toplevel| toplevel.focus(result.inner_surface),
+                .xdg_toplevel => |toplevel| {
+                    toplevel.focus(result.inner_surface);
+                    var is_alt_pressed = false;
+                    for (self.pocowm.input_mgr.keyboards.items) |keyboard| {
+                        const wl_keyboard = keyboard.device.toKeyboard();
+                        if (wl_keyboard.getModifiers().alt) {
+                            is_alt_pressed = true;
+                            break;
+                        }
+                    }
+                    if (is_alt_pressed) {
+                        switch (event.button) {
+                            // 0x110 = left mouse button
+                            0x110 => toplevel.startMove(),
+                            // 0x111 = right mouse button
+                            0x111 => {
+                                const rx = @as(i32, @intFromFloat(self.wlr_cursor.x)) - toplevel.scene_tree.node.x;
+                                const ry = @as(i32, @intFromFloat(self.wlr_cursor.y)) - toplevel.scene_tree.node.y;
+                                toplevel.startResize(toplevel.getEdgeAt(rx, ry) orelse unreachable);
+                            },
+                            else => {},
+                        }
+                    }
+                },
                 else => {},
             }
         }

@@ -287,34 +287,41 @@ const Cursor = struct {
 
     fn onPointerButton(listener: *wl.Listener(*wlr.Pointer.event.Button), event: *wlr.Pointer.event.Button) void {
         const self: *Cursor = @fieldParentPtr("on_pointer_button", listener);
-        _ = self.pocowm.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
+        var passthrough = true;
+        defer if (passthrough) {
+            _ = self.pocowm.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
+        };
         if (event.state == .released) {
             self.mode = .normal;
-        } else if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
-            switch (result.surface.parent) {
-                .xdg_toplevel => |toplevel| {
-                    toplevel.focus(result.inner_surface);
-                    var is_alt_pressed = false;
-                    for (self.pocowm.input_mgr.keyboards.items) |keyboard| {
-                        const wl_keyboard = keyboard.device.toKeyboard();
-                        if (wl_keyboard.getModifiers().alt) {
-                            is_alt_pressed = true;
-                            break;
-                        }
-                    }
-                    if (is_alt_pressed) {
-                        switch (event.button) {
-                            // 0x110 = left mouse button
-                            0x110 => toplevel.startMove(),
-                            // 0x111 = right mouse button
-                            0x111 => {
-                                const rx = @as(i32, @intFromFloat(self.wlr_cursor.x)) - toplevel.scene_tree.node.x;
-                                const ry = @as(i32, @intFromFloat(self.wlr_cursor.y)) - toplevel.scene_tree.node.y;
-                                toplevel.startResize(toplevel.getEdgeAt(rx, ry) orelse unreachable);
-                            },
-                            else => {},
-                        }
-                    }
+            return;
+        }
+        const result = self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y) orelse return;
+        const toplevel: *Toplevel = switch (result.surface.parent) {
+            .xdg_toplevel => |toplevel_| toplevel_,
+            else => return,
+        };
+        toplevel.focus(result.inner_surface);
+        var is_alt_pressed = false;
+        for (self.pocowm.input_mgr.keyboards.items) |keyboard| {
+            const wl_keyboard = keyboard.device.toKeyboard();
+            if (wl_keyboard.getModifiers().alt) {
+                is_alt_pressed = true;
+                break;
+            }
+        }
+        if (is_alt_pressed) {
+            switch (event.button) {
+                // 0x110 = left mouse button
+                0x110 => {
+                    passthrough = false;
+                    toplevel.startMove();
+                },
+                // 0x111 = right mouse button
+                0x111 => {
+                    passthrough = false;
+                    const rx = @as(i32, @intFromFloat(self.wlr_cursor.x)) - toplevel.scene_tree.node.x;
+                    const ry = @as(i32, @intFromFloat(self.wlr_cursor.y)) - toplevel.scene_tree.node.y;
+                    toplevel.startResize(toplevel.getEdgeAt(rx, ry) orelse return);
                 },
                 else => {},
             }

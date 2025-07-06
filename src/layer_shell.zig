@@ -175,6 +175,7 @@ pub const OutputLayers = struct {
     bottom: *Layer,
     tiled_views: *Layer,
     maximized_views: *Layer,
+    fullscreen_views: *Layer,
     top: *Layer,
     overlay: *Layer,
     popup: *Layer,
@@ -185,6 +186,7 @@ pub const OutputLayers = struct {
             .bottom = try Layer.create(&pocowm.scene.tree, allocator),
             .tiled_views = try Layer.create(&pocowm.scene.tree, allocator),
             .maximized_views = try Layer.create(&pocowm.scene.tree, allocator),
+            .fullscreen_views = try Layer.create(&pocowm.scene.tree, allocator),
             .top = try Layer.create(&pocowm.scene.tree, allocator),
             .overlay = try Layer.create(&pocowm.scene.tree, allocator),
             .popup = try Layer.create(&pocowm.scene.tree, allocator),
@@ -194,6 +196,7 @@ pub const OutputLayers = struct {
         self.bottom.scene_tree.node.lowerToBottom();
         self.background.scene_tree.node.lowerToBottom();
         self.tiled_views.scene_tree.node.placeBelow(&floating_views.scene_tree.node);
+        self.fullscreen_views.scene_tree.node.placeAbove(&floating_views.scene_tree.node);
         self.maximized_views.scene_tree.node.placeAbove(&floating_views.scene_tree.node);
         self.top.scene_tree.node.placeBelow(&menu.scene_tree.node);
         self.overlay.scene_tree.node.placeBelow(&menu.scene_tree.node);

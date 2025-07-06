@@ -152,7 +152,7 @@ const NodeChild = union(enum) {
     }
 };
 
-const WindowState = enum { tiled, floating, maximized };
+const WindowState = enum { tiled, floating, maximized, fullscreen };
 
 pub const Window = struct {
     toplevel: *Toplevel,
@@ -166,10 +166,12 @@ pub const Window = struct {
             .tiled => self.toplevel.setGeometry(geometry),
             .floating => self.toplevel.setGeometry(self.floating_box),
             .maximized => self.toplevel.setGeometry(self.parent.layout.output.usable_area),
+            .fullscreen => self.toplevel.setGeometry(self.parent.layout.output.fullArea()),
         }
     }
     pub fn makeFloating(self: *Window) void {
         _ = self.toplevel.xdg_toplevel.setMaximized(false);
+        _ = self.toplevel.xdg_toplevel.setFullscreen(false);
         if (self.state == .floating) return;
         const floating_views = self.parent.layout.pocowm.layer_shell_mgr.layers.floating_views;
         self.toplevel.scene_tree.node.reparent(floating_views.scene_tree);
@@ -177,12 +179,14 @@ pub const Window = struct {
     }
     pub fn makeTiled(self: *Window) void {
         _ = self.toplevel.xdg_toplevel.setMaximized(false);
+        _ = self.toplevel.xdg_toplevel.setFullscreen(false);
         if (self.state == .tiled) return;
         const tiled_views = self.parent.layout.output.layers.tiled_views;
         self.toplevel.scene_tree.node.reparent(tiled_views.scene_tree);
         self.state = .tiled;
     }
     pub fn makeMaximized(self: *Window) void {
+        _ = self.toplevel.xdg_toplevel.setFullscreen(false);
         _ = self.toplevel.xdg_toplevel.setMaximized(true);
         if (self.state == .maximized) return;
         const maximized_views = self.parent.layout.output.layers.maximized_views;
@@ -190,22 +194,45 @@ pub const Window = struct {
         self.old_state = self.state;
         self.state = .maximized;
     }
+    pub fn makeFullscreen(self: *Window) void {
+        _ = self.toplevel.xdg_toplevel.setMaximized(false);
+        _ = self.toplevel.xdg_toplevel.setFullscreen(true);
+        if (self.state == .fullscreen) return;
+        const fullscreen_views = self.parent.layout.output.layers.fullscreen_views;
+        self.toplevel.scene_tree.node.reparent(fullscreen_views.scene_tree);
+        self.old_state = self.state;
+        self.state = .fullscreen;
+    }
+    pub fn restoreOldState(self: *Window) void {
+        switch (self.old_state) {
+            .tiled => self.makeTiled(),
+            .floating => self.makeFloating(),
+            .maximized => self.makeTiled(),
+            .fullscreen => self.makeFullscreen(),
+        }
+    }
     pub fn toggleFloating(self: *Window) void {
         switch (self.state) {
             .tiled => self.makeFloating(),
             .floating => self.makeTiled(),
             .maximized => {},
+            .fullscreen => {},
         }
     }
     pub fn toggleMaximized(self: *Window) void {
         switch (self.state) {
             .tiled => self.makeMaximized(),
             .floating => self.makeMaximized(),
-            .maximized => switch (self.old_state) {
-                .tiled => self.makeTiled(),
-                .floating => self.makeFloating(),
-                .maximized => self.makeTiled(),
-            },
+            .maximized => self.restoreOldState(),
+            .fullscreen => {},
+        }
+    }
+    pub fn toggleFullscreen(self: *Window) void {
+        switch (self.state) {
+            .tiled => self.makeFullscreen(),
+            .floating => self.makeFullscreen(),
+            .maximized => {},
+            .fullscreen => self.restoreOldState(),
         }
     }
 };

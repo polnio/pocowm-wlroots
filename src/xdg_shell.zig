@@ -72,6 +72,7 @@ pub const Toplevel = struct {
     on_request_move: wl.Listener(*wlr.XdgToplevel.event.Move) = .init(onRequestMove),
     on_request_resize: wl.Listener(*wlr.XdgToplevel.event.Resize) = .init(onRequestResize),
     on_request_maximize: wl.Listener(void) = .init(onRequestMaximize),
+    on_request_fullscreen: wl.Listener(void) = .init(onRequestFullscreen),
     on_destroy: wl.Listener(void) = .init(onDestroy),
 
     fn create(pocowm: *PocoWM, xdg_toplevel: *wlr.XdgToplevel, allocator: std.mem.Allocator) !*Toplevel {
@@ -94,6 +95,7 @@ pub const Toplevel = struct {
         xdg_toplevel.events.request_move.add(&self.on_request_move);
         xdg_toplevel.events.request_resize.add(&self.on_request_resize);
         xdg_toplevel.events.request_maximize.add(&self.on_request_maximize);
+        xdg_toplevel.events.request_fullscreen.add(&self.on_request_fullscreen);
         xdg_toplevel.events.destroy.add(&self.on_destroy);
 
         try xdg_shell_mgr.toplevels.append(self);
@@ -118,6 +120,7 @@ pub const Toplevel = struct {
         self.on_request_move.link.remove();
         self.on_request_resize.link.remove();
         self.on_request_maximize.link.remove();
+        self.on_request_fullscreen.link.remove();
         self.on_destroy.link.remove();
 
         const xdg_shell_mgr = &self.pocowm.xdg_shell_mgr;
@@ -233,10 +236,15 @@ pub const Toplevel = struct {
     }
 
     fn onRequestMaximize(listener: *wl.Listener(void)) void {
-        std.debug.print("onRequestMaximize\n", .{});
         const self: *Toplevel = @fieldParentPtr("on_request_maximize", listener);
         _, const window = self.pocowm.output_mgr.getOutputAndWindow(self) orelse return;
         window.toggleMaximized();
+    }
+
+    fn onRequestFullscreen(listener: *wl.Listener(void)) void {
+        const self: *Toplevel = @fieldParentPtr("on_request_fullscreen", listener);
+        _, const window = self.pocowm.output_mgr.getOutputAndWindow(self) orelse return;
+        window.toggleFullscreen();
     }
 
     fn onDestroy(listener: *wl.Listener(void)) void {

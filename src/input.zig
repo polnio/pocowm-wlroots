@@ -173,6 +173,14 @@ const Keyboard = struct {
                         }
                         return true;
                     },
+                    xkb.Keysym.h => {
+                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
+                        if (focused_window) |w| {
+                            w.toggleFullscreen();
+                            output.layout.render();
+                        }
+                        return true;
+                    },
                     else => {},
                 }
             }

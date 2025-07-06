@@ -97,9 +97,10 @@ pub const Output = struct {
         self.* = .{
             .pocowm = pocowm,
             .layers = try OutputLayers.init(pocowm, allocator),
-            .layout = Layout.init(pocowm, self, allocator),
+            .layout = undefined,
             .wlr_output = wlr_output,
         };
+        self.layout.init(pocowm, self, allocator);
         wlr_output.effectiveResolution(&self.usable_area.width, &self.usable_area.height);
 
         if (wlr_output.isWl()) {

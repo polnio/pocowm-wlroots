@@ -16,12 +16,13 @@ output: *Output,
 root: Sublayout,
 windows: std.AutoHashMap(*Toplevel, *Window),
 
-pub fn init(pocowm: *PocoWM, output: *Output, allocator: std.mem.Allocator) Layout {
-    const self = Layout{
+pub fn init(self: *Layout, pocowm: *PocoWM, output: *Output, allocator: std.mem.Allocator) void {
+    self.* = .{
         .allocator = allocator,
         .pocowm = pocowm,
         .output = output,
         .root = .{
+            .layout = self,
             .allocator = allocator,
             .parent = null,
             .kind = .horizontal,
@@ -29,7 +30,6 @@ pub fn init(pocowm: *PocoWM, output: *Output, allocator: std.mem.Allocator) Layo
         },
         .windows = std.AutoHashMap(*Toplevel, *Window).init(allocator),
     };
-    return self;
 }
 
 pub fn addWindow(self: *Layout, toplevel: *Toplevel, parent: *Sublayout) !*Window {
@@ -88,7 +88,7 @@ pub fn getWindow(self: *Layout, toplevel: *Toplevel) ?*Window {
 
 pub fn addSublayout(self: *Layout, window: ?*Window, kind: SublayoutKind) !*Sublayout {
     if (window) |window_| {
-        const sublayout = try Sublayout.create(window_.parent, kind, self.allocator);
+        const sublayout = try Sublayout.create(self, window_.parent, kind, self.allocator);
         const index = for (window_.parent.children.items, 0..) |child, i| {
             switch (child) {
                 .window => |w| if (w == window_) break i,
@@ -104,7 +104,7 @@ pub fn addSublayout(self: *Layout, window: ?*Window, kind: SublayoutKind) !*Subl
         self.root.kind = kind;
         return &self.root;
     } else {
-        const sublayout = try Sublayout.create(&self.root, kind, self.allocator);
+        const sublayout = try Sublayout.create(self, &self.root, kind, self.allocator);
         try self.root.children.append(NodeChild{ .sublayout = sublayout });
         return sublayout;
     }
@@ -164,6 +164,25 @@ pub const Window = struct {
             self.toplevel.setGeometry(geometry);
         }
     }
+    pub fn makeFloating(self: *Window) void {
+        if (self.is_floating) return;
+        const floating_views = self.parent.layout.pocowm.layer_shell_mgr.layers.floating_views;
+        self.toplevel.scene_tree.node.reparent(floating_views.scene_tree);
+        self.is_floating = true;
+    }
+    pub fn makeTiled(self: *Window) void {
+        if (!self.is_floating) return;
+        const tiled_views = self.parent.layout.output.layers.tiled_views;
+        self.toplevel.scene_tree.node.reparent(tiled_views.scene_tree);
+        self.is_floating = false;
+    }
+    pub fn toggleFloating(self: *Window) void {
+        if (self.is_floating) {
+            self.makeTiled();
+        } else {
+            self.makeFloating();
+        }
+    }
 };
 pub const SublayoutKind = enum {
     horizontal,
@@ -172,14 +191,16 @@ pub const SublayoutKind = enum {
 const Sublayout = struct {
     allocator: std.mem.Allocator,
     parent: ?*Sublayout,
+    layout: *Layout,
     kind: SublayoutKind,
     children: std.ArrayList(NodeChild),
 
-    fn create(parent: ?*Sublayout, kind: SublayoutKind, allocator: std.mem.Allocator) !*Sublayout {
+    fn create(layout: *Layout, parent: ?*Sublayout, kind: SublayoutKind, allocator: std.mem.Allocator) !*Sublayout {
         const self = try allocator.create(Sublayout);
         self.* = .{
             .allocator = allocator,
             .parent = parent,
+            .layout = layout,
             .kind = kind,
             .children = std.ArrayList(NodeChild).init(allocator),
         };

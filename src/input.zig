@@ -160,7 +160,7 @@ const Keyboard = struct {
                     xkb.Keysym.f => {
                         const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
                         if (focused_window) |w| {
-                            w.is_floating = !w.is_floating;
+                            w.toggleFloating();
                             output.layout.render();
                         }
                         return true;

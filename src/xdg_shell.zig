@@ -75,6 +75,7 @@ pub const Toplevel = struct {
     on_destroy: wl.Listener(void) = .init(onDestroy),
 
     fn create(pocowm: *PocoWM, xdg_toplevel: *wlr.XdgToplevel, allocator: std.mem.Allocator) !*Toplevel {
+        const output, const focused = pocowm.getOutputAndFocusedWindow();
         const self = try allocator.create(Toplevel);
         errdefer allocator.destroy(self);
         const xdg_shell_mgr = &pocowm.xdg_shell_mgr;
@@ -83,7 +84,7 @@ pub const Toplevel = struct {
             .allocator = allocator,
             .pocowm = pocowm,
             .xdg_toplevel = xdg_toplevel,
-            .scene_tree = try pocowm.layer_shell_mgr.layers.normal.scene_tree.createSceneXdgSurface(xdg_toplevel.base),
+            .scene_tree = try output.layers.tiled_views.scene_tree.createSceneXdgSurface(xdg_toplevel.base),
         };
 
         self.scene_tree.node.data = @intFromPtr(&self.base);
@@ -95,12 +96,10 @@ pub const Toplevel = struct {
         xdg_toplevel.events.destroy.add(&self.on_destroy);
 
         try xdg_shell_mgr.toplevels.append(self);
-        const focused_ = if (self.pocowm.xdg_shell_mgr.focused_toplevel) |f| self.pocowm.layout.getWindow(f) else null;
-        const sublayout = if (focused_) |focused| focused.parent else &self.pocowm.layout.root;
-        const window = try self.pocowm.layout.addWindow(self, sublayout);
-        // TODO: get correct output
+        const sublayout = if (focused) |f| f.parent else &output.layout.root;
+        const window = try output.layout.addWindow(self, sublayout);
         var output_box: wlr.Box = undefined;
-        self.pocowm.output_mgr.output_layout.getBox(null, &output_box);
+        self.pocowm.output_mgr.output_layout.getBox(output.wlr_output, &output_box);
         window.floating_box = wlr.Box{
             .x = @divTrunc(output_box.width, 4),
             .y = @divTrunc(output_box.height, 4),
@@ -120,8 +119,9 @@ pub const Toplevel = struct {
         self.on_destroy.link.remove();
 
         const xdg_shell_mgr = &self.pocowm.xdg_shell_mgr;
-        if (self.pocowm.layout.getWindow(self)) |window| {
-            self.pocowm.layout.removeWindow(window);
+        if (self.pocowm.output_mgr.getOutputAndWindow(self)) |r| {
+            const output, const window = r;
+            output.layout.removeWindow(window);
         }
         const index = utils.find_index(*Toplevel, xdg_shell_mgr.toplevels.items, self) orelse return;
         _ = xdg_shell_mgr.toplevels.swapRemove(index);
@@ -173,7 +173,7 @@ pub const Toplevel = struct {
     }
 
     pub fn startMove(self: *Toplevel) void {
-        const window = self.pocowm.layout.getWindow(self) orelse return;
+        _, const window = self.pocowm.output_mgr.getOutputAndWindow(self) orelse return;
         if (!window.is_floating) return;
 
         var cursor = &self.pocowm.input_mgr.cursor;
@@ -189,7 +189,7 @@ pub const Toplevel = struct {
     }
 
     pub fn startResize(self: *Toplevel, edges: wlr.Edges) void {
-        const window = self.pocowm.layout.getWindow(self) orelse return;
+        _, const window = self.pocowm.output_mgr.getOutputAndWindow(self) orelse return;
         if (!window.is_floating) return;
 
         var cursor = &self.pocowm.input_mgr.cursor;

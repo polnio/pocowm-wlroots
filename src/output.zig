@@ -6,7 +6,10 @@ const wlr = @import("wlroots");
 const LayerShellMgr = @import("layer_shell.zig");
 const OutputLayers = LayerShellMgr.OutputLayers;
 const Layers = LayerShellMgr.Layers;
+const Layout = @import("layout.zig");
+const Window = Layout.Window;
 const PocoWM = @import("main.zig").PocoWM;
+const Toplevel = @import("xdg_shell.zig").Toplevel;
 const utils = @import("utils.zig");
 
 const OutputMgr = @This();
@@ -41,6 +44,15 @@ pub fn getOutput(self: *OutputMgr, wlr_output: *wlr.Output) ?*Output {
     return null;
 }
 
+pub fn getOutputAndWindow(self: *OutputMgr, toplevel: *Toplevel) ?struct { *Output, *Window } {
+    for (self.outputs.items) |o| {
+        if (o.layout.getWindow(toplevel)) |w| {
+            return .{ o, w };
+        }
+    }
+    return null;
+}
+
 fn onNewOutput(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     const self: *OutputMgr = @fieldParentPtr("on_new_output", listener);
 
@@ -68,6 +80,7 @@ pub const Output = struct {
 
     // TODO: see a way to group fields by feature
     layers: OutputLayers,
+    layout: Layout,
 
     on_frame: wl.Listener(*wlr.Output) = .init(onFrame),
     on_request_state: wl.Listener(*wlr.Output.event.RequestState) = .init(onRequestState),
@@ -84,6 +97,7 @@ pub const Output = struct {
         self.* = .{
             .pocowm = pocowm,
             .layers = try OutputLayers.init(pocowm, allocator),
+            .layout = Layout.init(pocowm, self, allocator),
             .wlr_output = wlr_output,
         };
         wlr_output.effectiveResolution(&self.usable_area.width, &self.usable_area.height);
@@ -123,7 +137,7 @@ pub const Output = struct {
         const self: *Output = @fieldParentPtr("on_frame", listener);
 
         self.pocowm.layer_shell_mgr.update(self);
-        // self.pocowm.layout.render(self);
+        // self.layout.render(self);
         const scene_output = self.pocowm.scene.getSceneOutput(self.wlr_output).?;
         _ = scene_output.commit(null);
 

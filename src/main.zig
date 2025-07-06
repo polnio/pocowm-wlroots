@@ -8,7 +8,9 @@ const InputMgr = @import("input.zig");
 const LayerShellMgr = @import("layer_shell.zig");
 const LayerSurface = @import("layer_shell.zig").LayerSurface;
 const Layout = @import("layout.zig");
+const Window = Layout.Window;
 const OutputMgr = @import("output.zig");
+const Output = OutputMgr.Output;
 const XdgOutputMgr = @import("xdg_output.zig");
 const XdgShellMgr = @import("xdg_shell.zig");
 
@@ -42,7 +44,6 @@ pub const PocoWM = struct {
     xdg_shell_mgr: XdgShellMgr = undefined,
     xdg_output_mgr: XdgOutputMgr = undefined,
     layer_shell_mgr: LayerShellMgr = undefined,
-    layout: Layout = undefined,
 
     socket_buf: [11]u8 = undefined,
     socket: [:0]const u8 = undefined,
@@ -62,7 +63,6 @@ pub const PocoWM = struct {
         try self.xdg_shell_mgr.init(self, allocator);
         try self.layer_shell_mgr.init(self, allocator);
         try self.xdg_output_mgr.init(self, allocator);
-        self.layout.init(self, allocator);
 
         try self.renderer.initServer(self.wl_server);
 
@@ -115,6 +115,21 @@ pub const PocoWM = struct {
             };
         }
         return null;
+    }
+
+    pub fn getOutputAndFocusedWindow(self: *PocoWM) struct { *Output, ?*Window } {
+        const focused = self.xdg_shell_mgr.focused_toplevel;
+        if (focused) |f| {
+            if (self.output_mgr.getOutputAndWindow(f)) |r| {
+                return r;
+            }
+        }
+        const wlr_output = self.output_mgr.output_layout.outputAt(
+            self.input_mgr.cursor.wlr_cursor.x,
+            self.input_mgr.cursor.wlr_cursor.y,
+        ) orelse unreachable;
+        const output = self.output_mgr.getOutput(wlr_output) orelse unreachable;
+        return .{ output, null };
     }
 };
 

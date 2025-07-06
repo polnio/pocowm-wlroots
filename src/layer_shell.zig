@@ -73,7 +73,7 @@ pub fn update(self: *LayerShellMgr, output: *Output) void {
     if (!std.meta.eql(output.usable_area, usable_area)) {
         output.usable_area = usable_area;
     }
-    self.pocowm.layout.render(output);
+    output.layout.render();
 }
 
 fn onNewSurface(listener: *wl.Listener(*wlr.LayerSurfaceV1), surface: *wlr.LayerSurfaceV1) void {
@@ -173,6 +173,7 @@ pub const Layer = struct {
 pub const OutputLayers = struct {
     background: *Layer,
     bottom: *Layer,
+    tiled_views: *Layer,
     top: *Layer,
     overlay: *Layer,
     popup: *Layer,
@@ -181,13 +182,16 @@ pub const OutputLayers = struct {
         var self = OutputLayers{
             .background = try Layer.create(&pocowm.scene.tree, allocator),
             .bottom = try Layer.create(&pocowm.scene.tree, allocator),
+            .tiled_views = try Layer.create(&pocowm.scene.tree, allocator),
             .top = try Layer.create(&pocowm.scene.tree, allocator),
             .overlay = try Layer.create(&pocowm.scene.tree, allocator),
             .popup = try Layer.create(&pocowm.scene.tree, allocator),
         };
         const menu = pocowm.layer_shell_mgr.layers.menu;
+        const floating_views = pocowm.layer_shell_mgr.layers.floating_views;
         self.bottom.scene_tree.node.lowerToBottom();
         self.background.scene_tree.node.lowerToBottom();
+        self.tiled_views.scene_tree.node.placeBelow(&floating_views.scene_tree.node);
         self.top.scene_tree.node.placeBelow(&menu.scene_tree.node);
         self.overlay.scene_tree.node.placeBelow(&menu.scene_tree.node);
         self.popup.scene_tree.node.placeBelow(&menu.scene_tree.node);
@@ -206,12 +210,12 @@ pub const OutputLayers = struct {
 };
 
 pub const Layers = struct {
-    normal: *Layer,
+    floating_views: *Layer,
     menu: *Layer,
 
     pub fn init(pocowm: *PocoWM, allocator: std.mem.Allocator) !Layers {
         return Layers{
-            .normal = try Layer.create(&pocowm.scene.tree, allocator),
+            .floating_views = try Layer.create(&pocowm.scene.tree, allocator),
             .menu = try Layer.create(&pocowm.scene.tree, allocator),
         };
     }

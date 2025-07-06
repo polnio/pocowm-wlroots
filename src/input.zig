@@ -4,9 +4,11 @@ const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 const xkb = @import("xkbcommon");
 
+const Output = @import("output.zig").Output;
+const Window = @import("layout.zig").Window;
 const PocoWM = @import("main.zig").PocoWM;
-const Toplevel = @import("xdg_shell.zig").Toplevel;
 const SublayoutKind = @import("layout.zig").SublayoutKind;
+const Toplevel = @import("xdg_shell.zig").Toplevel;
 const utils = @import("utils.zig");
 
 const InputMgr = @This();
@@ -131,41 +133,35 @@ const Keyboard = struct {
                         return true;
                     },
                     xkb.Keysym.b => {
-                        const focused = self.pocowm.xdg_shell_mgr.focused_toplevel;
-                        const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
-                        _ = self.pocowm.layout.addSublayout(focused_window, .vertical) catch |err| {
+                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
+
+                        _ = output.layout.addSublayout(focused_window, .vertical) catch |err| {
                             std.log.err("failed to add new sublayout: {s}", .{@errorName(err)});
                         };
                         return true;
                     },
                     xkb.Keysym.n => {
-                        const focused = self.pocowm.xdg_shell_mgr.focused_toplevel;
-                        const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
-                        _ = self.pocowm.layout.addSublayout(focused_window, .horizontal) catch |err| {
+                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
+                        _ = output.layout.addSublayout(focused_window, .horizontal) catch |err| {
                             std.log.err("failed to add new sublayout: {s}", .{@errorName(err)});
                         };
                         return true;
                     },
                     xkb.Keysym.e => {
-                        const focused = self.pocowm.xdg_shell_mgr.focused_toplevel;
-                        const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
+                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
                         const new_kind = @as(SublayoutKind, if (focused_window) |w| switch (w.parent.kind) {
                             .horizontal => .vertical,
                             .vertical => .horizontal,
                         } else .horizontal);
-                        const parent = if (focused_window) |w| w.parent else &self.pocowm.layout.root;
+                        const parent = if (focused_window) |w| w.parent else &output.layout.root;
                         parent.kind = new_kind;
                         return true;
                     },
                     xkb.Keysym.f => {
-                        const focused = self.pocowm.xdg_shell_mgr.focused_toplevel;
-                        const focused_window = if (focused) |f| self.pocowm.layout.getWindow(f) else null;
+                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
                         if (focused_window) |w| {
                             w.is_floating = !w.is_floating;
-                            // TODO: Only re-render the concerned output
-                            for (self.pocowm.output_mgr.outputs.items) |output| {
-                                self.pocowm.layout.render(output);
-                            }
+                            output.layout.render();
                         }
                         return true;
                     },
@@ -245,13 +241,13 @@ const Cursor = struct {
                 }
             },
             .move => {
-                const window = self.pocowm.layout.getWindow(self.grab.toplevel) orelse return;
+                _, const window = self.pocowm.output_mgr.getOutputAndWindow(self.grab.toplevel) orelse return;
                 window.floating_box.x = self.grab.old_box.x + @as(c_int, @intFromFloat(self.wlr_cursor.x - self.grab.grab_x));
                 window.floating_box.y = self.grab.old_box.y + @as(c_int, @intFromFloat(self.wlr_cursor.y - self.grab.grab_y));
                 self.grab.toplevel.setGeometry(window.floating_box);
             },
             .resize => {
-                const window = self.pocowm.layout.getWindow(self.grab.toplevel) orelse return;
+                _, const window = self.pocowm.output_mgr.getOutputAndWindow(self.grab.toplevel) orelse return;
                 var delta_x: c_int = @intFromFloat(self.wlr_cursor.x - self.grab.grab_x);
                 var delta_y: c_int = @intFromFloat(self.wlr_cursor.y - self.grab.grab_y);
                 var new_box = self.grab.old_box;

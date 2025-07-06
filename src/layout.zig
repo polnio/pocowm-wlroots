@@ -12,13 +12,15 @@ const GAP: i32 = 30;
 const Layout = @This();
 allocator: std.mem.Allocator,
 pocowm: *PocoWM,
+output: *Output,
 root: Sublayout,
 windows: std.AutoHashMap(*Toplevel, *Window),
 
-pub fn init(self: *Layout, pocowm: *PocoWM, allocator: std.mem.Allocator) void {
-    self.* = .{
+pub fn init(pocowm: *PocoWM, output: *Output, allocator: std.mem.Allocator) Layout {
+    const self = Layout{
         .allocator = allocator,
         .pocowm = pocowm,
+        .output = output,
         .root = .{
             .allocator = allocator,
             .parent = null,
@@ -27,6 +29,7 @@ pub fn init(self: *Layout, pocowm: *PocoWM, allocator: std.mem.Allocator) void {
         },
         .windows = std.AutoHashMap(*Toplevel, *Window).init(allocator),
     };
+    return self;
 }
 
 pub fn addWindow(self: *Layout, toplevel: *Toplevel, parent: *Sublayout) !*Window {
@@ -107,12 +110,12 @@ pub fn addSublayout(self: *Layout, window: ?*Window, kind: SublayoutKind) !*Subl
     }
 }
 
-pub fn render(self: *Layout, output: *Output) void {
+pub fn render(self: *Layout) void {
     const geometry = wlr.Box{
-        .x = output.usable_area.x + GAP,
-        .y = output.usable_area.y + GAP,
-        .width = output.usable_area.width - (GAP * 2),
-        .height = output.usable_area.height - (GAP * 2),
+        .x = self.output.usable_area.x + GAP,
+        .y = self.output.usable_area.y + GAP,
+        .width = self.output.usable_area.width - (GAP * 2),
+        .height = self.output.usable_area.height - (GAP * 2),
     };
 
     for (self.pocowm.layer_shell_mgr.surfaces.items) |layer_surface| {
@@ -148,7 +151,7 @@ const NodeChild = union(enum) {
     }
 };
 
-const Window = struct {
+pub const Window = struct {
     toplevel: *Toplevel,
     parent: *Sublayout,
     is_floating: bool,

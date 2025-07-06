@@ -172,7 +172,7 @@ pub const Toplevel = struct {
 
     pub fn startMove(self: *Toplevel) void {
         _, const window = self.pocowm.output_mgr.getOutputAndWindow(self) orelse return;
-        if (!window.is_floating) return;
+        if (window.state != .floating) return;
 
         var cursor = &self.pocowm.input_mgr.cursor;
 
@@ -188,7 +188,7 @@ pub const Toplevel = struct {
 
     pub fn startResize(self: *Toplevel, edges: wlr.Edges) void {
         _, const window = self.pocowm.output_mgr.getOutputAndWindow(self) orelse return;
-        if (!window.is_floating) return;
+        if (window.state != .floating) return;
 
         var cursor = &self.pocowm.input_mgr.cursor;
 

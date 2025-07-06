@@ -37,7 +37,7 @@ pub fn addWindow(self: *Layout, toplevel: *Toplevel, parent: *Sublayout) !*Windo
     window.* = .{
         .toplevel = toplevel,
         .parent = parent,
-        .is_floating = false,
+        .state = .tiled,
         .floating_box = undefined,
     };
     toplevel.xdg_toplevel.base.getGeometry(&window.floating_box);
@@ -151,36 +151,36 @@ const NodeChild = union(enum) {
     }
 };
 
+const WindowState = enum { tiled, floating };
+
 pub const Window = struct {
     toplevel: *Toplevel,
     parent: *Sublayout,
-    is_floating: bool,
+    state: WindowState,
     floating_box: wlr.Box,
 
     pub fn render(self: *Window, geometry: wlr.Box) void {
-        if (self.is_floating) {
-            self.toplevel.setGeometry(self.floating_box);
-        } else {
-            self.toplevel.setGeometry(geometry);
+        switch (self.state) {
+            .tiled => self.toplevel.setGeometry(geometry),
+            .floating => self.toplevel.setGeometry(self.floating_box),
         }
     }
     pub fn makeFloating(self: *Window) void {
-        if (self.is_floating) return;
+        if (self.state == .floating) return;
         const floating_views = self.parent.layout.pocowm.layer_shell_mgr.layers.floating_views;
         self.toplevel.scene_tree.node.reparent(floating_views.scene_tree);
-        self.is_floating = true;
+        self.state = .floating;
     }
     pub fn makeTiled(self: *Window) void {
-        if (!self.is_floating) return;
+        if (self.state == .tiled) return;
         const tiled_views = self.parent.layout.output.layers.tiled_views;
         self.toplevel.scene_tree.node.reparent(tiled_views.scene_tree);
-        self.is_floating = false;
+        self.state = .tiled;
     }
     pub fn toggleFloating(self: *Window) void {
-        if (self.is_floating) {
-            self.makeTiled();
-        } else {
-            self.makeFloating();
+        switch (self.state) {
+            .tiled => self.makeFloating(),
+            .floating => self.makeTiled(),
         }
     }
 };
@@ -219,7 +219,7 @@ const Sublayout = struct {
         var len: i32 = 0;
         for (self.children.items) |child| {
             switch (child) {
-                .window => |window| if (window.is_floating) continue,
+                .window => |window| if (window.state != .tiled) continue,
                 else => {},
             }
             len += 1;
@@ -247,7 +247,7 @@ const Sublayout = struct {
                 },
             };
             switch (child) {
-                .window => |window| if (!window.is_floating) {
+                .window => |window| if (window.state == .tiled) {
                     i += 1;
                 },
                 else => {

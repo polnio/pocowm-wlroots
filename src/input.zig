@@ -321,7 +321,7 @@ const Cursor = struct {
                     passthrough = false;
                     const rx = @as(i32, @intFromFloat(self.wlr_cursor.x)) - toplevel.scene_tree.node.x;
                     const ry = @as(i32, @intFromFloat(self.wlr_cursor.y)) - toplevel.scene_tree.node.y;
-                    toplevel.startResize(toplevel.getEdgeAt(rx, ry) orelse return);
+                    toplevel.startResize(toplevel.getEdgeAt(rx, ry));
                 },
                 else => {},
             }

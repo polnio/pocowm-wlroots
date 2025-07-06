@@ -128,11 +128,9 @@ pub const Toplevel = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn getEdgeAt(self: *Toplevel, x: i32, y: i32) ?wlr.Edges {
-        if (x < 0 or y < 0) return null;
+    pub fn getEdgeAt(self: *Toplevel, x: i32, y: i32) wlr.Edges {
         const width = self.xdg_toplevel.current.width;
         const height = self.xdg_toplevel.current.height;
-        if (x > width or y > height) return null;
         const edges = wlr.Edges{
             .left = x << 1 < width,
             .right = x << 1 > width,

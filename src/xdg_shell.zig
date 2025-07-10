@@ -23,7 +23,7 @@ pub fn init(self: *XdgShellMgr, pocowm: *PocoWM, allocator: std.mem.Allocator) !
     self.* = .{
         .allocator = allocator,
         .pocowm = pocowm,
-        .xdg_shell = try wlr.XdgShell.create(pocowm.wl_server, 2),
+        .xdg_shell = try wlr.XdgShell.create(pocowm.wl_server, 6),
         .toplevels = std.ArrayList(*Toplevel).init(allocator),
     };
     self.xdg_shell.events.new_toplevel.add(&self.on_new_toplevel);

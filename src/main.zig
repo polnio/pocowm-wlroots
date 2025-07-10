@@ -11,6 +11,7 @@ const Layout = @import("layout.zig");
 const Window = Layout.Window;
 const OutputMgr = @import("output.zig");
 const Output = OutputMgr.Output;
+const DecorationMgr = @import("decoration.zig");
 const XdgOutputMgr = @import("xdg_output.zig");
 const XdgShellMgr = @import("xdg_shell.zig");
 
@@ -43,6 +44,7 @@ pub const PocoWM = struct {
     output_mgr: OutputMgr = undefined,
     xdg_shell_mgr: XdgShellMgr = undefined,
     xdg_output_mgr: XdgOutputMgr = undefined,
+    decoration_mgr: DecorationMgr = undefined,
     layer_shell_mgr: LayerShellMgr = undefined,
 
     socket_buf: [11]u8 = undefined,
@@ -63,6 +65,7 @@ pub const PocoWM = struct {
         try self.xdg_shell_mgr.init(self, allocator);
         try self.layer_shell_mgr.init(self, allocator);
         try self.xdg_output_mgr.init(self, allocator);
+        try self.decoration_mgr.init(self, allocator);
 
         try self.renderer.initServer(self.wl_server);
 
@@ -90,7 +93,8 @@ pub const PocoWM = struct {
 
     const ViewAtResult = struct {
         surface: *BaseSurface,
-        inner_surface: *wlr.Surface,
+        inner_surface: ?*wlr.Surface,
+        tree: *wlr.SceneTree,
         sx: f64,
         sy: f64,
     };
@@ -99,19 +103,24 @@ pub const PocoWM = struct {
         var sx: f64 = undefined;
         var sy: f64 = undefined;
         const node = self.scene.tree.node.at(x, y, &sx, &sy) orelse return null;
-        if (node.type != .buffer) return null;
-        const scene_buffer = wlr.SceneBuffer.fromNode(node);
-        const scene_surface = wlr.SceneSurface.tryFromBuffer(scene_buffer) orelse return null;
+        const scene_surface = if (node.type == .buffer)
+            wlr.SceneSurface.tryFromBuffer(wlr.SceneBuffer.fromNode(node))
+        else
+            null;
 
         var it = node.parent;
-        while (it) |n| : (it = n.node.parent) {
-            const msurface: ?*BaseSurface = @ptrFromInt(n.node.data);
-            const surface = msurface orelse continue;
+        while (it) |tree| : (it = tree.node.parent) {
+            const surface = b: {
+                const msurface: ?*BaseSurface = @ptrFromInt(tree.node.data);
+                break :b msurface orelse continue;
+            };
+            const inner_surface = if (scene_surface) |s| s.surface else null;
             return ViewAtResult{
                 .surface = surface,
-                .inner_surface = scene_surface.surface,
+                .inner_surface = inner_surface,
                 .sx = sx,
                 .sy = sy,
+                .tree = tree,
             };
         }
         return null;

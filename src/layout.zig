@@ -168,6 +168,7 @@ pub const Window = struct {
             .maximized => self.toplevel.setGeometry(self.parent.layout.output.usable_area),
             .fullscreen => self.toplevel.setGeometry(self.parent.layout.output.fullArea()),
         }
+        self.toplevel.render();
     }
     pub fn makeFloating(self: *Window) void {
         _ = self.toplevel.xdg_toplevel.setMaximized(false);

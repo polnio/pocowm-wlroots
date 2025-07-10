@@ -3,6 +3,9 @@ const std = @import("std");
 const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 
+const DecorationMgr = @import("decoration.zig");
+const TITLEBAR_HEIGHT = DecorationMgr.TITLEBAR_HEIGHT;
+const ToplevelDecoration = DecorationMgr.ToplevelDecoration;
 const PocoWM = @import("main.zig").PocoWM;
 const BaseSurface = @import("main.zig").BaseSurface;
 const utils = @import("utils.zig");
@@ -32,6 +35,15 @@ pub fn init(self: *XdgShellMgr, pocowm: *PocoWM, allocator: std.mem.Allocator) !
 
 pub fn deinit(self: *XdgShellMgr) void {
     _ = self;
+}
+
+pub fn getToplevel(self: *XdgShellMgr, xdg_toplevel: *wlr.XdgToplevel) ?*Toplevel {
+    for (self.toplevels.items) |toplevel| {
+        if (toplevel.xdg_toplevel == xdg_toplevel) {
+            return toplevel;
+        }
+    }
+    return null;
 }
 
 pub fn updateFocus(self: *XdgShellMgr) void {
@@ -65,6 +77,7 @@ pub const Toplevel = struct {
     pocowm: *PocoWM,
     xdg_toplevel: *wlr.XdgToplevel,
     scene_tree: *wlr.SceneTree,
+    decoration: *ToplevelDecoration,
 
     // TODO: implement events handlers
     on_new_popup: wl.Listener(*wlr.XdgPopup) = .init(onNewPopup),
@@ -86,6 +99,7 @@ pub const Toplevel = struct {
             .pocowm = pocowm,
             .xdg_toplevel = xdg_toplevel,
             .scene_tree = try output.layers.tiled_views.scene_tree.createSceneXdgSurface(xdg_toplevel.base),
+            .decoration = try ToplevelDecoration.create(pocowm, self, allocator),
         };
 
         self.scene_tree.node.data = @intFromPtr(&self.base);
@@ -112,7 +126,8 @@ pub const Toplevel = struct {
         self.focus(null);
         return self;
     }
-    fn destroy(self: *Toplevel) void {
+    pub fn destroy(self: *Toplevel) void {
+        self.decoration.destroy();
         if (self.xdg_toplevel.base.initial_commit) {
             self.on_surface_commit.link.remove();
         }
@@ -133,6 +148,10 @@ pub const Toplevel = struct {
         self.allocator.destroy(self);
     }
 
+    pub fn render(self: *Toplevel) void {
+        self.decoration.draw();
+    }
+
     pub fn getEdgeAt(self: *Toplevel, x: i32, y: i32) wlr.Edges {
         const width = self.xdg_toplevel.current.width;
         const height = self.xdg_toplevel.current.height;
@@ -145,9 +164,33 @@ pub const Toplevel = struct {
         return edges;
     }
 
+    pub fn getGeometry(self: *Toplevel) wlr.Box {
+        var box = wlr.Box{
+            .x = self.scene_tree.node.x,
+            .y = self.scene_tree.node.y,
+            .width = self.xdg_toplevel.current.width,
+            .height = self.xdg_toplevel.current.height,
+        };
+        if (self.decoration != null) {
+            box.height += TITLEBAR_HEIGHT;
+        }
+        return box;
+    }
+
+    pub fn getSurfaceGeometry(self: *Toplevel) wlr.Box {
+        var box: wlr.Box = undefined;
+        self.xdg_toplevel.base.getGeometry(&box);
+        return box;
+    }
+
     pub fn setGeometry(self: *Toplevel, geometry: wlr.Box) void {
-        self.scene_tree.node.setPosition(geometry.x, geometry.y);
-        _ = self.xdg_toplevel.setSize(geometry.width, geometry.height);
+        var box = geometry;
+        if (self.decoration.isTitlebarShown()) {
+            box.height -= TITLEBAR_HEIGHT;
+            box.y += TITLEBAR_HEIGHT;
+        }
+        self.scene_tree.node.setPosition(box.x, box.y);
+        _ = self.xdg_toplevel.setSize(box.width, box.height);
     }
 
     pub fn isFocused(self: *Toplevel) bool {
@@ -172,6 +215,21 @@ pub const Toplevel = struct {
 
         if (self.pocowm.seat.getKeyboard()) |keyboard| {
             self.pocowm.seat.keyboardNotifyEnter(surface_, keyboard.keycodes[0..keyboard.num_keycodes], &keyboard.modifiers);
+        }
+    }
+
+    pub fn onPointerButton(self: *Toplevel, event: *wlr.Pointer.event.Button) void {
+        // self.focus(result.inner_surface);
+        if (event.state == .released) return;
+        if (event.button == 0x111) return; // Right mouse button
+        var box = self.getSurfaceGeometry();
+        box.x += self.scene_tree.node.x;
+        box.y += self.scene_tree.node.y;
+        const rx = @as(i32, @intFromFloat(self.pocowm.input_mgr.cursor.wlr_cursor.x)) - box.x;
+        const ry = @as(i32, @intFromFloat(self.pocowm.input_mgr.cursor.wlr_cursor.y)) - box.y;
+        const is_inside = rx >= 0 and ry >= 0 and rx < box.width and ry < box.height;
+        if (!is_inside) {
+            self.decoration.onPointerButton(rx, ry);
         }
     }
 

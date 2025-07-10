@@ -4,6 +4,7 @@ const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 const xkb = @import("xkbcommon");
 
+const TITLEBAR_HEIGHT = @import("decoration.zig").TITLEBAR_HEIGHT;
 const Output = @import("output.zig").Output;
 const Window = @import("layout.zig").Window;
 const PocoWM = @import("main.zig").PocoWM;
@@ -245,8 +246,13 @@ const Cursor = struct {
         switch (self.mode) {
             .normal => {
                 if (self.pocowm.viewAt(self.wlr_cursor.x, self.wlr_cursor.y)) |result| {
-                    self.pocowm.seat.pointerNotifyEnter(result.inner_surface, result.sx, result.sy);
-                    self.pocowm.seat.pointerNotifyMotion(time_msec, result.sx, result.sy);
+                    const inner_surface, const sx, const sy = if (result.inner_surface) |inner_surface_|
+                        .{ inner_surface_, result.sx, result.sy }
+                    else
+                        .{ result.surface.wlr_surface(), self.wlr_cursor.x - @as(f64, @floatFromInt(result.tree.node.x)), self.wlr_cursor.y - @as(f64, @floatFromInt(result.tree.node.y)) };
+
+                    self.pocowm.seat.pointerNotifyEnter(inner_surface, sx, sy);
+                    self.pocowm.seat.pointerNotifyMotion(time_msec, sx, sy);
                     switch (result.surface.parent) {
                         .xdg_toplevel => |toplevel| toplevel.focus(result.inner_surface),
                         else => {},
@@ -281,8 +287,9 @@ const Cursor = struct {
                 if (self.grab.resize_edges.top or self.grab.resize_edges.bottom) {
                     new_box.height += delta_y;
                 }
+                const offset = if (self.grab.toplevel.decoration.isTitlebarShown()) TITLEBAR_HEIGHT else 0;
                 if (new_box.width <= 0) new_box.width = 1;
-                if (new_box.height <= 0) new_box.height = 1;
+                if (new_box.height <= offset) new_box.height = offset + 1;
                 window.floating_box = new_box;
                 self.grab.toplevel.setGeometry(window.floating_box);
             },
@@ -317,6 +324,7 @@ const Cursor = struct {
             else => return,
         };
         toplevel.focus(result.inner_surface);
+        toplevel.onPointerButton(event);
         var is_alt_pressed = false;
         for (self.pocowm.input_mgr.keyboards.items) |keyboard| {
             const wl_keyboard = keyboard.device.toKeyboard();

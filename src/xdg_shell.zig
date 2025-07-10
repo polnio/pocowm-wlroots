@@ -238,13 +238,13 @@ pub const Toplevel = struct {
     fn onRequestMaximize(listener: *wl.Listener(void)) void {
         const self: *Toplevel = @fieldParentPtr("on_request_maximize", listener);
         _, const window = self.pocowm.output_mgr.getOutputAndWindow(self) orelse return;
-        window.toggleMaximized();
+        window.setMaximized(self.xdg_toplevel.requested.maximized);
     }
 
     fn onRequestFullscreen(listener: *wl.Listener(void)) void {
         const self: *Toplevel = @fieldParentPtr("on_request_fullscreen", listener);
         _, const window = self.pocowm.output_mgr.getOutputAndWindow(self) orelse return;
-        window.toggleFullscreen();
+        window.setFullscreen(self.xdg_toplevel.requested.fullscreen);
     }
 
     fn onDestroy(listener: *wl.Listener(void)) void {

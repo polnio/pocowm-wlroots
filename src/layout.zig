@@ -227,6 +227,11 @@ pub const Window = struct {
             .fullscreen => {},
         }
     }
+    pub fn setMaximized(self: *Window, maximized: bool) void {
+        if (maximized and self.state == .maximized) return;
+        if (!maximized and self.state != .maximized) return;
+        self.toggleMaximized();
+    }
     pub fn toggleFullscreen(self: *Window) void {
         switch (self.state) {
             .tiled => self.makeFullscreen(),
@@ -234,6 +239,11 @@ pub const Window = struct {
             .maximized => {},
             .fullscreen => self.restoreOldState(),
         }
+    }
+    pub fn setFullscreen(self: *Window, fullscreen: bool) void {
+        if (fullscreen and self.state == .fullscreen) return;
+        if (!fullscreen and self.state != .fullscreen) return;
+        self.toggleFullscreen();
     }
 };
 pub const SublayoutKind = enum {

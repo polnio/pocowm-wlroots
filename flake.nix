@@ -31,6 +31,16 @@
           }
         );
 
+      # Needs to be dynamic, the static library has a bug
+      shared-ckdl =
+        pkgs:
+        pkgs.ckdl.lib.overrideAttrs (old: {
+          cmakeFlags = old.cmakeFlags ++ [
+            "-DBUILD_SHARED_LIBS=true"
+            "-DCMAKE_SKIP_BUILD_RPATH=ON"
+          ];
+        });
+
       nativeBuildInputs =
         pkgs: with pkgs; [
           autoPatchelfHook
@@ -38,6 +48,7 @@
           wayland-scanner
           wayland-protocols
           wlr-protocols
+          (shared-ckdl pkgs)
         ];
       buildInputs =
         pkgs: with pkgs; [
@@ -46,6 +57,9 @@
           pixman
           wlroots_0_18
         ];
+
+      ZIG_SYSTEM_INCLUDE_PATH = pkgs: pkgs.ckdl.dev + "/include";
+      ZIG_SYSTEM_LIB_PATH = pkgs: (shared-ckdl pkgs) + "/lib";
     in
     {
       packages = forAllSystems (
@@ -56,12 +70,14 @@
           ...
         }:
         {
-          default = zig-env.package rec {
+          default = zig-env.package {
             src = lib.cleanSource ./.;
             nativeBuildInputs = nativeBuildInputs pkgs;
             buildInputs = buildInputs pkgs;
-            zigWrapperLibs = buildInputs;
+            zigWrapperLibs = buildInputs pkgs;
             zigBuildZonLock = ./build.zig.zon2json-lock;
+            ZIG_SYSTEM_INCLUDE_PATH = ZIG_SYSTEM_INCLUDE_PATH pkgs;
+            ZIG_SYSTEM_LIB_PATH = ZIG_SYSTEM_LIB_PATH pkgs;
           };
         }
       );
@@ -70,6 +86,8 @@
         {
           default = pkgs.mkShell {
             nativeBuildInputs = with pkgs; [ zig ] ++ (nativeBuildInputs pkgs) ++ (buildInputs pkgs);
+            ZIG_SYSTEM_INCLUDE_PATH = ZIG_SYSTEM_INCLUDE_PATH pkgs;
+            ZIG_SYSTEM_LIB_PATH = ZIG_SYSTEM_LIB_PATH pkgs;
           };
         }
       );

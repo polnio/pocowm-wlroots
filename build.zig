@@ -55,6 +55,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const system_include = std.posix.getenv("ZIG_SYSTEM_INCLUDE_PATH");
+    const system_lib = std.posix.getenv("ZIG_SYSTEM_LIB_PATH");
+
+    if (system_include) |path| pocowm.addIncludePath(.{ .cwd_relative = path });
+    if (system_lib) |path| pocowm.addLibraryPath(.{ .cwd_relative = path });
+
     pocowm.linkLibC();
 
     pocowm.root_module.addImport("wayland", wayland);
@@ -64,6 +70,7 @@ pub fn build(b: *std.Build) void {
     pocowm.linkSystemLibrary("wayland-server");
     pocowm.linkSystemLibrary("xkbcommon");
     pocowm.linkSystemLibrary("pixman-1");
+    pocowm.linkSystemLibrary("kdl");
 
     b.installArtifact(pocowm);
 

@@ -4,6 +4,7 @@ const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 const xkb = @import("xkbcommon");
 
+const Config = @import("config.zig");
 const TITLEBAR_HEIGHT = @import("decoration.zig").TITLEBAR_HEIGHT;
 const Output = @import("output.zig").Output;
 const Window = @import("layout.zig").Window;
@@ -69,12 +70,15 @@ const Keyboard = struct {
     on_key: wl.Listener(*wlr.Keyboard.event.Key) = .init(onKey),
     on_destroy: wl.Listener(*wlr.InputDevice) = .init(onDestroy),
 
+    pressed_keys: std.ArrayList(u32),
+
     fn create(pocowm: *PocoWM, device: *wlr.InputDevice, allocator: std.mem.Allocator) !*Keyboard {
         const self = try allocator.create(Keyboard);
         self.* = .{
             .allocator = allocator,
             .pocowm = pocowm,
             .device = device,
+            .pressed_keys = .init(allocator),
         };
 
         const context = xkb.Context.new(.no_flags) orelse return error.ContextFailed;
@@ -111,7 +115,6 @@ const Keyboard = struct {
     fn onKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), key: *wlr.Keyboard.event.Key) void {
         const self: *Keyboard = @fieldParentPtr("on_key", listener);
         const wlr_keyboard = self.device.toKeyboard();
-        // libinput -> xkbcommon
         const is_handled = self.handleKeybind(key);
 
         if (!is_handled) {
@@ -122,33 +125,66 @@ const Keyboard = struct {
 
     fn handleKeybind(self: *Keyboard, key: *wlr.Keyboard.event.Key) bool {
         const wlr_keyboard = self.device.toKeyboard();
+        // libinput -> xkbcommon
         const keycode = key.keycode + 8;
-        if (wlr_keyboard.getModifiers().alt and key.state == .pressed) {
-            for (wlr_keyboard.xkb_state.?.keyGetSyms(keycode)) |sym| {
-                switch (@intFromEnum(sym)) {
-                    xkb.Keysym.Return => {
-                        var child = std.process.Child.init(&.{"foot"}, self.allocator);
-                        child.spawn() catch |err| {
-                            std.log.err("failed to spawn foot: {s}", .{@errorName(err)});
-                        };
-                        return true;
-                    },
-                    xkb.Keysym.b => {
-                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
+        const modifiers = wlr_keyboard.getModifiers();
+        for (wlr_keyboard.xkb_state.?.keyGetSyms(keycode)) |sym| {
+            switch (key.state) {
+                .pressed => {
+                    self.pressed_keys.append(@intFromEnum(sym)) catch unreachable;
+                },
+                .released => {
+                    const index = utils.find_index(u32, self.pressed_keys.items, @intFromEnum(sym)) orelse continue;
+                    _ = self.pressed_keys.swapRemove(index);
+                },
+                else => {},
+            }
+        }
+        binds: for (Config.instance.binds.items) |bind| {
+            if (bind.modifiers != modifiers) continue;
+            // if (bind.keys.items.len != self.pressed_keys.items.len) continue;
+            for (bind.keys.items) |k| {
+                var key_found = false;
+                for (self.pressed_keys.items) |pressed_key| {
+                    if (pressed_key == k) {
+                        key_found = true;
+                        break;
+                    }
+                }
+                if (!key_found) continue :binds;
+            }
 
-                        _ = output.layout.addSublayout(focused_window, .vertical) catch |err| {
-                            std.log.err("failed to add new sublayout: {s}", .{@errorName(err)});
+            for (bind.action.body.items) |action| {
+                switch (action.func.name) {
+                    .spawn => {
+                        const command = action.args.slice()[0].string;
+                        var child = std.process.Child.init(&.{ "/bin/sh", "-c", command }, self.allocator);
+                        child.spawn() catch |err| {
+                            std.log.err("failed to spawn '{s}': {s}", .{ command, @errorName(err) });
                         };
-                        return true;
                     },
-                    xkb.Keysym.n => {
+                    .toggle_float => {
                         const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
-                        _ = output.layout.addSublayout(focused_window, .horizontal) catch |err| {
-                            std.log.err("failed to add new sublayout: {s}", .{@errorName(err)});
-                        };
-                        return true;
+                        if (focused_window) |w| {
+                            w.toggleFloating();
+                            output.layout.render();
+                        }
                     },
-                    xkb.Keysym.e => {
+                    .toggle_maximized => {
+                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
+                        if (focused_window) |w| {
+                            w.toggleMaximized();
+                            output.layout.render();
+                        }
+                    },
+                    .toggle_fullscreen => {
+                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
+                        if (focused_window) |w| {
+                            w.toggleFullscreen();
+                            output.layout.render();
+                        }
+                    },
+                    .switch_direction => {
                         const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
                         const new_kind = @as(SublayoutKind, if (focused_window) |w| switch (w.parent.kind) {
                             .horizontal => .vertical,
@@ -156,35 +192,19 @@ const Keyboard = struct {
                         } else .horizontal);
                         const parent = if (focused_window) |w| w.parent else &output.layout.root;
                         parent.kind = new_kind;
-                        return true;
                     },
-                    xkb.Keysym.f => {
+                    .make_group => {
+                        const kind = action.args.slice()[0].layout;
                         const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
-                        if (focused_window) |w| {
-                            w.toggleFloating();
-                            output.layout.render();
-                        }
+                        _ = output.layout.addSublayout(focused_window, kind) catch |err| {
+                            std.log.err("failed to add new sublayout: {s}", .{@errorName(err)});
+                        };
                         return true;
                     },
-                    xkb.Keysym.g => {
-                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
-                        if (focused_window) |w| {
-                            w.toggleMaximized();
-                            output.layout.render();
-                        }
-                        return true;
-                    },
-                    xkb.Keysym.h => {
-                        const output, const focused_window = self.pocowm.getOutputAndFocusedWindow();
-                        if (focused_window) |w| {
-                            w.toggleFullscreen();
-                            output.layout.render();
-                        }
-                        return true;
-                    },
-                    else => {},
                 }
             }
+
+            return true;
         }
         return false;
     }

@@ -250,6 +250,13 @@ pub const Window = struct {
 pub const SublayoutKind = enum {
     horizontal,
     vertical,
+
+    pub fn fromString(str: []const u8) ?SublayoutKind {
+        inline for (std.meta.fields(SublayoutKind)) |field| {
+            if (std.mem.eql(u8, field.name, str)) return @field(SublayoutKind, field.name);
+        }
+        return null;
+    }
 };
 const Sublayout = struct {
     allocator: std.mem.Allocator,

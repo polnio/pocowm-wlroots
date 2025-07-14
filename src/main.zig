@@ -4,6 +4,9 @@ const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 const xkb = @import("xkbcommon");
 
+const Args = @import("args.zig");
+const Config = @import("config.zig");
+const DecorationMgr = @import("decoration.zig");
 const InputMgr = @import("input.zig");
 const LayerShellMgr = @import("layer_shell.zig");
 const LayerSurface = @import("layer_shell.zig").LayerSurface;
@@ -11,7 +14,6 @@ const Layout = @import("layout.zig");
 const Window = Layout.Window;
 const OutputMgr = @import("output.zig");
 const Output = OutputMgr.Output;
-const DecorationMgr = @import("decoration.zig");
 const XdgOutputMgr = @import("xdg_output.zig");
 const XdgShellMgr = @import("xdg_shell.zig");
 
@@ -23,6 +25,9 @@ pub fn main() anyerror!void {
     wlr.log.init(.debug, null);
 
     const allocator = std.heap.page_allocator;
+
+    Args.init(allocator);
+    Config.init(allocator);
 
     var pocowm: PocoWM = undefined;
     try pocowm.init(allocator);

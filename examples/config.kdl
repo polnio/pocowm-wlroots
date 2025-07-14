@@ -1,0 +1,14 @@
+binds {
+  Alt+Enter { spawn "kitty" }
+
+  Alt+Shift+f { toggle_float }
+
+  Alt+f { toggle_fullscreen }
+  Alt+g { toggle_maximized }
+
+  Alt+e { switch_direction }
+  Alt+b { make_group vertical }
+  Alt+n { make_group horizontal }
+
+  XF86AudioPlay { spawn "playerctl play-pause" }
+}

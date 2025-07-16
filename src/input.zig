@@ -5,7 +5,6 @@ const wlr = @import("wlroots");
 const xkb = @import("xkbcommon");
 
 const Config = @import("config.zig");
-const TITLEBAR_HEIGHT = @import("decoration.zig").TITLEBAR_HEIGHT;
 const Output = @import("output.zig").Output;
 const Window = @import("layout.zig").Window;
 const PocoWM = @import("main.zig").PocoWM;
@@ -307,7 +306,7 @@ const Cursor = struct {
                 if (self.grab.resize_edges.top or self.grab.resize_edges.bottom) {
                     new_box.height += delta_y;
                 }
-                const offset = if (self.grab.toplevel.decoration.isTitlebarShown()) TITLEBAR_HEIGHT else 0;
+                const offset = if (self.grab.toplevel.decoration.isTitlebarShown()) Config.instance.decoration.titlebar_height else 0;
                 if (new_box.width <= 0) new_box.width = 1;
                 if (new_box.height <= offset) new_box.height = offset + 1;
                 window.floating_box = new_box;

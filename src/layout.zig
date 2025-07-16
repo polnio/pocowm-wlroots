@@ -3,11 +3,10 @@ const std = @import("std");
 const wlr = @import("wlroots");
 
 const Output = @import("output.zig").Output;
+const Config = @import("config.zig");
 const PocoWM = @import("main.zig").PocoWM;
 const Toplevel = @import("xdg_shell.zig").Toplevel;
 const utils = @import("utils.zig");
-
-const GAP: i32 = 30;
 
 const Layout = @This();
 allocator: std.mem.Allocator,
@@ -112,11 +111,12 @@ pub fn addSublayout(self: *Layout, window: ?*Window, kind: SublayoutKind) !*Subl
 }
 
 pub fn render(self: *Layout) void {
+    const gap = Config.instance.layout.gap;
     const geometry = wlr.Box{
-        .x = self.output.usable_area.x + GAP,
-        .y = self.output.usable_area.y + GAP,
-        .width = self.output.usable_area.width - (GAP * 2),
-        .height = self.output.usable_area.height - (GAP * 2),
+        .x = self.output.usable_area.x + gap,
+        .y = self.output.usable_area.y + gap,
+        .width = self.output.usable_area.width - (gap * 2),
+        .height = self.output.usable_area.height - (gap * 2),
     };
 
     for (self.pocowm.layer_shell_mgr.surfaces.items) |layer_surface| {
@@ -286,6 +286,7 @@ const Sublayout = struct {
     }
 
     fn render(self: *Sublayout, geometry: wlr.Box) void {
+        const gap = Config.instance.layout.gap;
         var len: i32 = 0;
         for (self.children.items) |child| {
             switch (child) {
@@ -304,16 +305,16 @@ const Sublayout = struct {
         for (self.children.items) |child| {
             const subgeometry = switch (self.kind) {
                 .horizontal => wlr.Box{
-                    .x = geometry.x + @divTrunc((geometry.width + GAP) * i, len),
+                    .x = geometry.x + @divTrunc((geometry.width + gap) * i, len),
                     .y = geometry.y,
-                    .width = @divTrunc(geometry.width + GAP, len) - GAP,
+                    .width = @divTrunc(geometry.width + gap, len) - gap,
                     .height = geometry.height,
                 },
                 .vertical => wlr.Box{
                     .x = geometry.x,
-                    .y = geometry.y + @divTrunc((geometry.height + GAP) * i, len),
+                    .y = geometry.y + @divTrunc((geometry.height + gap) * i, len),
                     .width = geometry.width,
-                    .height = @divTrunc(geometry.height + GAP, len) - GAP,
+                    .height = @divTrunc(geometry.height + gap, len) - gap,
                 },
             };
             switch (child) {

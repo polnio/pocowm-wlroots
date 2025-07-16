@@ -3,18 +3,10 @@ const std = @import("std");
 const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 
+const Config = @import("config.zig");
 const PocoWM = @import("main.zig").PocoWM;
 const Toplevel = @import("xdg_shell.zig").Toplevel;
 const utils = @import("utils.zig");
-
-pub const BORDER_SIZE: i32 = 5;
-pub const BORDER_COLOR: [4]f32 = .{ 0.0, 0.0, 1.0, 1.0 }; // Blue
-pub const TITLEBAR_HEIGHT: i32 = 30;
-pub const TITLEBAR_COLOR: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 }; // White
-pub const BUTTON_SIZE: i32 = 20;
-pub const CLOSE_BUTTON_COLOR: [4]f32 = .{ 1.0, 0.0, 0.0, 1.0 }; // Red
-pub const MAXIMIZE_BUTTON_COLOR: [4]f32 = .{ 0.0, 1.0, 0.0, 1.0 }; // Green
-pub const BUTTON_GAP: i32 = (TITLEBAR_HEIGHT - BUTTON_SIZE) / 2;
 
 const DecorationMgr = @This();
 
@@ -78,21 +70,22 @@ pub const ToplevelDecoration = struct {
         allocator: std.mem.Allocator,
     ) !*ToplevelDecoration {
         const self = try allocator.create(ToplevelDecoration);
+        const decoration = &Config.instance.decoration;
         self.* = .{
             .allocator = allocator,
             .pocowm = pocowm,
             .toplevel = toplevel,
 
             .titlebar = .{
-                .all = try toplevel.scene_tree.createSceneRect(0, 0, &TITLEBAR_COLOR),
-                .close_button = try toplevel.scene_tree.createSceneRect(0, 0, &CLOSE_BUTTON_COLOR),
-                .maximize_button = try toplevel.scene_tree.createSceneRect(0, 0, &MAXIMIZE_BUTTON_COLOR),
+                .all = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.titlebar_color),
+                .close_button = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.close_button_color),
+                .maximize_button = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.maximize_button_color),
             },
             .borders = .{
-                .top = try toplevel.scene_tree.createSceneRect(0, 0, &BORDER_COLOR),
-                .bottom = try toplevel.scene_tree.createSceneRect(0, 0, &BORDER_COLOR),
-                .left = try toplevel.scene_tree.createSceneRect(0, 0, &BORDER_COLOR),
-                .right = try toplevel.scene_tree.createSceneRect(0, 0, &BORDER_COLOR),
+                .top = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.border_color),
+                .bottom = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.border_color),
+                .left = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.border_color),
+                .right = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.border_color),
             },
         };
 
@@ -126,11 +119,13 @@ pub const ToplevelDecoration = struct {
     }
 
     pub fn onPointerButton(self: *ToplevelDecoration, rx: i32, ry: i32) void {
+        const decoration = &Config.instance.decoration;
+        const button_gap = decoration.buttonGap();
         const geometry = self.toplevel.getSurfaceGeometry();
         const is_titlebar_shown = self.isTitlebarShown();
-        const offset: i32 = if (is_titlebar_shown) TITLEBAR_HEIGHT else 0;
-        if (rx < -BORDER_SIZE or rx > geometry.width + BORDER_SIZE) return;
-        if (ry < -BORDER_SIZE - offset or ry > geometry.height + BORDER_SIZE) return;
+        const offset: i32 = if (is_titlebar_shown) decoration.titlebar_height else 0;
+        if (rx < -decoration.border_size or rx > geometry.width + decoration.border_size) return;
+        if (ry < -decoration.border_size - offset or ry > geometry.height + decoration.border_size) return;
 
         var resize_edges = std.mem.zeroes(wlr.Edges);
         resize_edges.left = rx < 0;
@@ -145,24 +140,24 @@ pub const ToplevelDecoration = struct {
 
         if (!is_titlebar_shown) return;
         if (ry > 0) return;
-        if (ry > -BUTTON_GAP) {
+        if (ry > -button_gap) {
             self.toplevel.startMove();
             return;
         }
-        if (ry > -BUTTON_GAP - BUTTON_SIZE) {
-            if (rx < BUTTON_GAP) {
+        if (ry > -button_gap - decoration.button_size) {
+            if (rx < button_gap) {
                 self.toplevel.startMove();
                 return;
             }
-            if (rx < BUTTON_GAP + BUTTON_SIZE) {
+            if (rx < button_gap + decoration.button_size) {
                 self.toplevel.xdg_toplevel.sendClose();
                 return;
             }
-            if (rx < BUTTON_GAP * 2 + BUTTON_SIZE) {
+            if (rx < button_gap * 2 + decoration.button_size) {
                 self.toplevel.startMove();
                 return;
             }
-            if (rx < BUTTON_GAP * 2 + BUTTON_SIZE * 2) {
+            if (rx < button_gap * 2 + decoration.button_size * 2) {
                 _, const window = self.pocowm.output_mgr.getOutputAndWindow(self.toplevel) orelse return;
                 window.toggleMaximized();
                 return;
@@ -174,26 +169,28 @@ pub const ToplevelDecoration = struct {
 
     pub fn draw(self: *ToplevelDecoration) void {
         const box = self.toplevel.getSurfaceGeometry();
+        const decoration = &Config.instance.decoration;
         var offset: i32 = 0;
         if (self.isTitlebarShown()) {
-            offset = TITLEBAR_HEIGHT;
+            const button_gap = decoration.buttonGap();
+            offset = decoration.titlebar_height;
             self.drawPart(self.titlebar.all, .{
                 .x = 0,
-                .y = -TITLEBAR_HEIGHT,
+                .y = -decoration.titlebar_height,
                 .width = box.width,
-                .height = TITLEBAR_HEIGHT,
+                .height = decoration.titlebar_height,
             });
             self.drawPart(self.titlebar.close_button, .{
-                .x = BUTTON_GAP,
-                .y = -BUTTON_GAP - BUTTON_SIZE,
-                .width = BUTTON_SIZE,
-                .height = BUTTON_SIZE,
+                .x = button_gap,
+                .y = -button_gap - decoration.button_size,
+                .width = decoration.button_size,
+                .height = decoration.button_size,
             });
             self.drawPart(self.titlebar.maximize_button, .{
-                .x = BUTTON_GAP * 2 + BUTTON_SIZE,
-                .y = -BUTTON_GAP - BUTTON_SIZE,
-                .width = BUTTON_SIZE,
-                .height = BUTTON_SIZE,
+                .x = button_gap * 2 + decoration.button_size,
+                .y = -button_gap - decoration.button_size,
+                .width = decoration.button_size,
+                .height = decoration.button_size,
             });
         } else {
             self.hidePart(self.titlebar.all);
@@ -203,27 +200,27 @@ pub const ToplevelDecoration = struct {
         if (self.isBoderShown()) {
             self.drawPart(self.borders.top, .{
                 .x = 0,
-                .y = -BORDER_SIZE - offset,
+                .y = -decoration.border_size - offset,
                 .width = box.width,
-                .height = BORDER_SIZE,
+                .height = decoration.border_size,
             });
             self.drawPart(self.borders.bottom, .{
                 .x = 0,
                 .y = box.height,
                 .width = box.width,
-                .height = BORDER_SIZE,
+                .height = decoration.border_size,
             });
             self.drawPart(self.borders.left, .{
-                .x = -BORDER_SIZE,
-                .y = -offset - BORDER_SIZE,
-                .width = BORDER_SIZE,
-                .height = box.height + offset + BORDER_SIZE * 2,
+                .x = -decoration.border_size,
+                .y = -offset - decoration.border_size,
+                .width = decoration.border_size,
+                .height = box.height + offset + decoration.border_size * 2,
             });
             self.drawPart(self.borders.right, .{
                 .x = box.width,
-                .y = -offset - BORDER_SIZE,
-                .width = BORDER_SIZE,
-                .height = box.height + offset + BORDER_SIZE * 2,
+                .y = -offset - decoration.border_size,
+                .width = decoration.border_size,
+                .height = box.height + offset + decoration.border_size * 2,
             });
         } else {
             self.hidePart(self.borders.top);

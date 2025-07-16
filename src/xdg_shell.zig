@@ -4,7 +4,7 @@ const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
 
 const DecorationMgr = @import("decoration.zig");
-const TITLEBAR_HEIGHT = DecorationMgr.TITLEBAR_HEIGHT;
+const Config = @import("config.zig");
 const ToplevelDecoration = DecorationMgr.ToplevelDecoration;
 const PocoWM = @import("main.zig").PocoWM;
 const BaseSurface = @import("main.zig").BaseSurface;
@@ -172,7 +172,7 @@ pub const Toplevel = struct {
             .height = self.xdg_toplevel.current.height,
         };
         if (self.decoration != null) {
-            box.height += TITLEBAR_HEIGHT;
+            box.height += Config.instance.decoration.titlebar_height;
         }
         return box;
     }
@@ -186,8 +186,8 @@ pub const Toplevel = struct {
     pub fn setGeometry(self: *Toplevel, geometry: wlr.Box) void {
         var box = geometry;
         if (self.decoration.isTitlebarShown()) {
-            box.height -= TITLEBAR_HEIGHT;
-            box.y += TITLEBAR_HEIGHT;
+            box.height -= Config.instance.decoration.titlebar_height;
+            box.y += Config.instance.decoration.titlebar_height;
         }
         self.scene_tree.node.setPosition(box.x, box.y);
         _ = self.xdg_toplevel.setSize(box.width, box.height);

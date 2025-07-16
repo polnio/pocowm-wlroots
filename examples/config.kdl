@@ -12,3 +12,19 @@ binds {
 
   XF86AudioPlay { spawn "playerctl play-pause" }
 }
+
+decoration {
+  border-size 5
+  border-color "#00f"
+
+  titlebar-height 30
+  titlebar-color "#fff"
+
+  button-size 20
+  close-button-color "#f00"
+  maximize-button-color "#0f0"
+}
+
+layout {
+  gap 30
+}

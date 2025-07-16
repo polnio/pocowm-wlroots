@@ -171,8 +171,12 @@ pub const Toplevel = struct {
             .width = self.xdg_toplevel.current.width,
             .height = self.xdg_toplevel.current.height,
         };
-        if (self.decoration != null) {
+        if (self.decoration.isTitlebarShown()) {
             box.height += Config.instance.decoration.titlebar_height;
+        }
+        if (self.decoration.isBorderShown()) {
+            box.width += Config.instance.decoration.border_size;
+            box.height += Config.instance.decoration.border_size;
         }
         return box;
     }
@@ -188,6 +192,12 @@ pub const Toplevel = struct {
         if (self.decoration.isTitlebarShown()) {
             box.height -= Config.instance.decoration.titlebar_height;
             box.y += Config.instance.decoration.titlebar_height;
+        }
+        if (self.decoration.isBorderShown()) {
+            box.x += Config.instance.decoration.border_size;
+            box.y += Config.instance.decoration.border_size;
+            box.width -= Config.instance.decoration.border_size * 2;
+            box.height -= Config.instance.decoration.border_size * 2;
         }
         self.scene_tree.node.setPosition(box.x, box.y);
         _ = self.xdg_toplevel.setSize(box.width, box.height);

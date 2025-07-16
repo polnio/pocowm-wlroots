@@ -55,6 +55,12 @@ pub const ToplevelDecoration = struct {
         close_button: *wlr.SceneRect,
         maximize_button: *wlr.SceneRect,
     },
+    borders: struct {
+        top: *wlr.SceneRect,
+        bottom: *wlr.SceneRect,
+        left: *wlr.SceneRect,
+        right: *wlr.SceneRect,
+    },
     outlines: struct {
         top: *wlr.SceneRect,
         bottom: *wlr.SceneRect,
@@ -80,6 +86,12 @@ pub const ToplevelDecoration = struct {
                 .all = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.titlebar_color),
                 .close_button = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.close_button_color),
                 .maximize_button = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.maximize_button_color),
+            },
+            .borders = .{
+                .top = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.border_color),
+                .bottom = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.border_color),
+                .left = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.border_color),
+                .right = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.border_color),
             },
             .outlines = .{
                 .top = try toplevel.scene_tree.createSceneRect(0, 0, &decoration.outline_color),
@@ -109,7 +121,11 @@ pub const ToplevelDecoration = struct {
         return Config.instance.decoration.titlebar_height > 0 and self.mode == .server_side and !self.toplevel.xdg_toplevel.current.fullscreen;
     }
 
-    pub fn isBoderShown(self: *ToplevelDecoration) bool {
+    pub fn isBorderShown(self: *ToplevelDecoration) bool {
+        return Config.instance.decoration.border_size > 0 and !self.toplevel.xdg_toplevel.current.fullscreen;
+    }
+
+    pub fn isOutlineShown(self: *ToplevelDecoration) bool {
         return Config.instance.decoration.outline_size > 0 and !self.toplevel.xdg_toplevel.current.maximized and !self.toplevel.xdg_toplevel.current.fullscreen;
     }
 
@@ -175,20 +191,20 @@ pub const ToplevelDecoration = struct {
             const button_gap = decoration.buttonGap();
             offset = decoration.titlebar_height;
             self.drawPart(self.titlebar.all, .{
-                .x = 0,
-                .y = -decoration.titlebar_height,
-                .width = box.width,
+                .x = -decoration.border_size,
+                .y = -decoration.titlebar_height - decoration.border_size,
+                .width = box.width + decoration.border_size * 2,
                 .height = decoration.titlebar_height,
             });
             self.drawPart(self.titlebar.close_button, .{
-                .x = button_gap,
-                .y = -button_gap - decoration.button_size,
+                .x = button_gap - decoration.border_size,
+                .y = -button_gap - decoration.button_size - decoration.border_size,
                 .width = decoration.button_size,
                 .height = decoration.button_size,
             });
             self.drawPart(self.titlebar.maximize_button, .{
-                .x = button_gap * 2 + decoration.button_size,
-                .y = -button_gap - decoration.button_size,
+                .x = button_gap * 2 + decoration.button_size - decoration.border_size,
+                .y = -button_gap - decoration.button_size - decoration.border_size,
                 .width = decoration.button_size,
                 .height = decoration.button_size,
             });
@@ -197,30 +213,65 @@ pub const ToplevelDecoration = struct {
             self.hidePart(self.titlebar.close_button);
             self.hidePart(self.titlebar.maximize_button);
         }
-        if (self.isBoderShown()) {
-            self.drawPart(self.outlines.top, .{
-                .x = 0,
-                .y = -decoration.outline_size - offset,
-                .width = box.width,
-                .height = decoration.outline_size,
-            });
-            self.drawPart(self.outlines.bottom, .{
+        if (self.isBorderShown()) {
+            if (std.mem.eql(f32, &decoration.border_color, &decoration.titlebar_color)) {
+                self.hidePart(self.borders.top);
+            } else {
+                self.drawPart(self.borders.top, .{
+                    .x = 0,
+                    .y = -decoration.border_size,
+                    .width = box.width,
+                    .height = decoration.border_size,
+                });
+            }
+            self.drawPart(self.borders.bottom, .{
                 .x = 0,
                 .y = box.height,
                 .width = box.width,
+                .height = decoration.border_size,
+            });
+            self.drawPart(self.borders.left, .{
+                .x = -decoration.border_size,
+                .y = -decoration.border_size,
+                .width = decoration.border_size,
+                .height = box.height + decoration.border_size * 2,
+            });
+            self.drawPart(self.borders.right, .{
+                .x = box.width,
+                .y = -decoration.border_size,
+                .width = decoration.border_size,
+                .height = box.height + decoration.border_size * 2,
+            });
+        } else {
+            self.hidePart(self.borders.top);
+            self.hidePart(self.borders.bottom);
+            self.hidePart(self.borders.left);
+            self.hidePart(self.borders.right);
+        }
+        if (self.isOutlineShown()) {
+            self.drawPart(self.outlines.top, .{
+                .x = -decoration.border_size,
+                .y = -decoration.outline_size - decoration.border_size - offset,
+                .width = box.width + decoration.border_size * 2,
+                .height = decoration.outline_size,
+            });
+            self.drawPart(self.outlines.bottom, .{
+                .x = -decoration.border_size,
+                .y = box.height + decoration.border_size,
+                .width = box.width + decoration.border_size * 2,
                 .height = decoration.outline_size,
             });
             self.drawPart(self.outlines.left, .{
-                .x = -decoration.outline_size,
-                .y = -offset - decoration.outline_size,
+                .x = -decoration.outline_size - decoration.border_size,
+                .y = -offset - decoration.outline_size - decoration.border_size,
                 .width = decoration.outline_size,
-                .height = box.height + offset + decoration.outline_size * 2,
+                .height = box.height + offset + decoration.outline_size * 2 + decoration.border_size * 2,
             });
             self.drawPart(self.outlines.right, .{
-                .x = box.width,
-                .y = -offset - decoration.outline_size,
+                .x = box.width + decoration.border_size,
+                .y = -offset - decoration.outline_size - decoration.border_size,
                 .width = decoration.outline_size,
-                .height = box.height + offset + decoration.outline_size * 2,
+                .height = box.height + offset + decoration.outline_size * 2 + decoration.border_size * 2,
             });
         } else {
             self.hidePart(self.outlines.top);

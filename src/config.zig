@@ -25,6 +25,8 @@ const Bind = struct {
 const Decoration = struct {
     outline_size: i32,
     outline_color: [4]f32,
+    border_size: i32,
+    border_color: [4]f32,
     titlebar_height: i32,
     titlebar_color: [4]f32,
     button_size: i32,
@@ -87,6 +89,18 @@ pub fn try_load(path: []const u8, allocator: std.mem.Allocator) !Config {
                                     self.decoration.outline_color = value.color;
                                     const end_evt = c.kdl_parser_next_event(parser);
                                     if (!kdl_expect_end_node(end_evt.*.event, 1, "outline-color")) return error.ParseError;
+                                } else if (std.mem.eql(u8, decor_name, "border-size")) {
+                                    if (!kdl_expect_type(value_ed.*.value.type, c.KDL_TYPE_NUMBER, "border-size")) return error.ParseError;
+                                    const value = Value.fromKdl(value_ed.*.value, .integer, allocator) orelse return error.ParseError;
+                                    self.decoration.border_size = value.integer;
+                                    const end_evt = c.kdl_parser_next_event(parser);
+                                    if (!kdl_expect_end_node(end_evt.*.event, 1, "border-size")) return error.ParseError;
+                                } else if (std.mem.eql(u8, decor_name, "border-color")) {
+                                    if (!kdl_expect_type(value_ed.*.value.type, c.KDL_TYPE_STRING, "border-color")) return error.ParseError;
+                                    const value = Value.fromKdl(value_ed.*.value, .color, allocator) orelse return error.ParseError;
+                                    self.decoration.border_color = value.color;
+                                    const end_evt = c.kdl_parser_next_event(parser);
+                                    if (!kdl_expect_end_node(end_evt.*.event, 1, "border-color")) return error.ParseError;
                                 } else if (std.mem.eql(u8, decor_name, "titlebar-height")) {
                                     if (!kdl_expect_type(value_ed.*.value.type, c.KDL_TYPE_NUMBER, "titlebar-height")) return error.ParseError;
                                     const value = Value.fromKdl(value_ed.*.value, .integer, allocator) orelse return error.ParseError;

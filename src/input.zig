@@ -127,7 +127,7 @@ const Keyboard = struct {
         // libinput -> xkbcommon
         const keycode = key.keycode + 8;
         const modifiers = wlr_keyboard.getModifiers();
-        for (wlr_keyboard.xkb_state.?.keyGetSyms(keycode)) |sym| {
+        for (wlr_keyboard.xkb_state.?.getKeymap().keyGetSymsByLevel(keycode, 0, 0)) |sym| {
             switch (key.state) {
                 .pressed => {
                     self.pressed_keys.append(@intFromEnum(sym)) catch unreachable;
@@ -135,6 +135,7 @@ const Keyboard = struct {
                 .released => {
                     const index = utils.find_index(u32, self.pressed_keys.items, @intFromEnum(sym)) orelse continue;
                     _ = self.pressed_keys.swapRemove(index);
+                    return false;
                 },
                 else => {},
             }

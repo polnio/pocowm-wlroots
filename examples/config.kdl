@@ -14,8 +14,8 @@ binds {
 }
 
 decoration {
-  border-size 5
-  border-color "#00f"
+  outline-size 5
+  outline-color "#00f"
 
   titlebar-height 30
   titlebar-color "#fff"

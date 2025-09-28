@@ -27,7 +27,9 @@
           f rec {
             pkgs = nixpkgs.legacyPackages.${system};
             lib = pkgs.lib;
-            zig-env = zig2nix.outputs.zig-env.${system} { };
+            zig-env = zig2nix.outputs.zig-env.${system} {
+              zig = zig2nix.outputs.zigv."0_14_0";
+            };
           }
         );
 
@@ -85,7 +87,7 @@
         { pkgs, ... }:
         {
           default = pkgs.mkShell {
-            nativeBuildInputs = with pkgs; [ zig ] ++ (nativeBuildInputs pkgs) ++ (buildInputs pkgs);
+            nativeBuildInputs = with pkgs; [ zig_0_14 ] ++ (nativeBuildInputs pkgs) ++ (buildInputs pkgs);
             ZIG_SYSTEM_INCLUDE_PATH = ZIG_SYSTEM_INCLUDE_PATH pkgs;
             ZIG_SYSTEM_LIB_PATH = ZIG_SYSTEM_LIB_PATH pkgs;
           };
